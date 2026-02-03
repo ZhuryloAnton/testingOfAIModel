@@ -1,4 +1,5 @@
 import json
+import re
 import pdfplumber
 import pytesseract
 from transformers import AutoTokenizer, AutoModelForCausalLM
@@ -7,9 +8,9 @@ MODEL_NAME = "rmtlabs/IMCatalina-v1.0"
 PDF_PATH = "cv.pdf"
 OUTPUT_JSON = "cv.json"
 
-# ---------------------------
-# Load model
-# ---------------------------
+# --------------------------------------------------
+# Load model (no unsupported generation flags)
+# --------------------------------------------------
 print("🚀 Loading Catalina model...")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 model = AutoModelForCausalLM.from_pretrained(
@@ -17,9 +18,9 @@ model = AutoModelForCausalLM.from_pretrained(
     device_map="auto"
 )
 
-# ---------------------------
-# Extract text from PDF (with OCR fallback)
-# ---------------------------
+# --------------------------------------------------
+# Extract text from PDF (text + OCR fallback)
+# --------------------------------------------------
 def extract_text_from_pdf(path):
     text = ""
     with pdfplumber.open(path) as pdf:
@@ -32,19 +33,28 @@ def extract_text_from_pdf(path):
                 text += pytesseract.image_to_string(image) + "\n"
     return text
 
-# ---------------------------
-# Prompt Catalina → JSON
-# ---------------------------
+# --------------------------------------------------
+# Extract first JSON object from model output
+# --------------------------------------------------
+def extract_json_from_text(text):
+    match = re.search(r"\{[\s\S]*\}", text)
+    if not match:
+        raise ValueError("❌ No JSON object found in model output")
+    return match.group(0)
+
+# --------------------------------------------------
+# Ask Catalina to parse CV
+# --------------------------------------------------
 def parse_cv_with_ai(cv_text):
     prompt = f"""
-You are an AI system that extracts structured data from resumes.
+You are an AI that extracts structured data from resumes.
 
 Return ONLY valid JSON.
-Do not add explanations.
-Do not add markdown.
+No explanations.
+No markdown.
 Start with {{ and end with }}.
 
-Use this exact schema:
+Schema:
 {{
   "name": "",
   "email": "",
@@ -66,33 +76,30 @@ Resume:
 
     output = model.generate(
         **inputs,
-        max_new_tokens=700,
-        temperature=0.0,
-        do_sample=False,
-        eos_token_id=tokenizer.eos_token_id
+        max_new_tokens=600,
+        do_sample=False   # IMPORTANT: works with Catalina
     )
 
     response = tokenizer.decode(output[0], skip_special_tokens=True)
 
-    # Extract JSON safely
-    start = response.find("{")
-    end = response.rfind("}") + 1
+    try:
+        json_text = extract_json_from_text(response)
+        return json.loads(json_text)
+    except Exception:
+        print("\n⚠️ Model output (debug):\n")
+        print(response)
+        raise
 
-    if start == -1 or end == -1:
-        raise ValueError("Model did not return JSON")
-
-    return json.loads(response[start:end])
-
-# ---------------------------
+# --------------------------------------------------
 # MAIN
-# ---------------------------
+# --------------------------------------------------
 print("📄 Reading CV...")
 cv_text = extract_text_from_pdf(PDF_PATH)
 
 print("🧠 Parsing with AI...")
-cv_json = parse_cv_with_ai(cv_text)
+cv_data = parse_cv_with_ai(cv_text)
 
 with open(OUTPUT_JSON, "w") as f:
-    json.dump(cv_json, f, indent=2)
+    json.dump(cv_data, f, indent=2)
 
 print(f"✅ Done! JSON saved to {OUTPUT_JSON}")
