@@ -2,14 +2,15 @@ import json
 import pdfplumber
 import pytesseract
 from transformers import AutoTokenizer, AutoModelForCausalLM
-import torch
 
 MODEL_NAME = "rmtlabs/IMCatalina-v1.0"
+PDF_PATH = "cv.pdf"
+OUTPUT_JSON = "cv.json"
 
 # ---------------------------
 # Load model
 # ---------------------------
-print("Loading model...")
+print("🚀 Loading Catalina model...")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_NAME,
@@ -17,14 +18,14 @@ model = AutoModelForCausalLM.from_pretrained(
 )
 
 # ---------------------------
-# Extract text (PDF + OCR)
+# Extract text from PDF (with OCR fallback)
 # ---------------------------
-def extract_text(pdf_path):
+def extract_text_from_pdf(path):
     text = ""
-    with pdfplumber.open(pdf_path) as pdf:
+    with pdfplumber.open(path) as pdf:
         for page in pdf.pages:
             page_text = page.extract_text()
-            if page_text:
+            if page_text and page_text.strip():
                 text += page_text + "\n"
             else:
                 image = page.to_image(resolution=300).original
@@ -32,23 +33,30 @@ def extract_text(pdf_path):
     return text
 
 # ---------------------------
-# Ask AI for JSON
+# Prompt Catalina → JSON
 # ---------------------------
-def cv_to_json(cv_text):
+def parse_cv_with_ai(cv_text):
     prompt = f"""
-Extract CV data and return ONLY valid JSON.
+You are an AI system that extracts structured data from resumes.
 
-Schema:
+Return ONLY valid JSON.
+Do not add explanations.
+Do not add markdown.
+Start with {{ and end with }}.
+
+Use this exact schema:
 {{
   "name": "",
   "email": "",
   "phone": "",
+  "address": "",
   "skills": [],
   "experience": [],
-  "education": []
+  "education": [],
+  "languages": []
 }}
 
-CV:
+Resume:
 \"\"\"
 {cv_text}
 \"\"\"
@@ -58,27 +66,33 @@ CV:
 
     output = model.generate(
         **inputs,
-        max_new_tokens=600,
-        temperature=0.1,
-        do_sample=False
+        max_new_tokens=700,
+        temperature=0.0,
+        do_sample=False,
+        eos_token_id=tokenizer.eos_token_id
     )
 
     response = tokenizer.decode(output[0], skip_special_tokens=True)
 
+    # Extract JSON safely
     start = response.find("{")
     end = response.rfind("}") + 1
+
+    if start == -1 or end == -1:
+        raise ValueError("Model did not return JSON")
+
     return json.loads(response[start:end])
 
 # ---------------------------
 # MAIN
 # ---------------------------
-print("Reading CV...")
-text = extract_text("cv.pdf")
+print("📄 Reading CV...")
+cv_text = extract_text_from_pdf(PDF_PATH)
 
-print("Parsing with AI...")
-result = cv_to_json(text)
+print("🧠 Parsing with AI...")
+cv_json = parse_cv_with_ai(cv_text)
 
-with open("cv.json", "w") as f:
-    json.dump(result, f, indent=2)
+with open(OUTPUT_JSON, "w") as f:
+    json.dump(cv_json, f, indent=2)
 
-print("Done ✅ → cv.json")
+print(f"✅ Done! JSON saved to {OUTPUT_JSON}")
