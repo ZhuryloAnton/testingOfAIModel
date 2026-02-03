@@ -1,17 +1,60 @@
-from transformers import AutoModelForCausalLM, AutoTokenizer
+import pdfplumber
+import json
 import torch
+from transformers import AutoTokenizer, AutoModelForCausalLM
 
-model_name = "rmtlabs/IMCatalina-v1.0"
+MODEL_NAME = "rmtlabs/IMCatalina-v1.0"
 
-tokenizer = AutoTokenizer.from_pretrained(model_name)
-model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.float16, device_map="auto")
+# Load tokenizer & model
+tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+model = AutoModelForCausalLM.from_pretrained(
+    MODEL_NAME,
+    torch_dtype=torch.float16,
+    device_map="auto"
+)
 
-def extract_json_from_cv(text):
-    prompt = f"Convert this resume text to structured JSON:\n\n{text}\n\nJSON:"
+def extract_text_from_pdf(pdf_path):
+    text = ""
+    with pdfplumber.open(pdf_path) as pdf:
+        for page in pdf.pages:
+            page_text = page.extract_text()
+            if page_text:
+                text += page_text + "\n"
+    return text
+
+def parse_cv_to_json(cv_text):
+    prompt = f"""
+You are an AI that extracts structured data from resumes.
+
+Return ONLY valid JSON in this format:
+{{
+  "name": "",
+  "email": "",
+  "phone": "",
+  "skills": [],
+  "experience": [],
+  "education": []
+}}
+
+Resume text:
+{cv_text}
+JSON:
+"""
+
     inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
-    outputs = model.generate(**inputs, max_length=1024)
-    return tokenizer.decode(outputs[0], skip_special_tokens=True)
+    outputs = model.generate(
+        **inputs,
+        max_new_tokens=800,
+        temperature=0.1
+    )
 
-cv_text = """Your raw CV text goes here ..."""
-json_output = extract_json_from_cv(cv_text)
-print(json_output)
+    result = tokenizer.decode(outputs[0], skip_special_tokens=True)
+    return result
+
+if __name__ == "__main__":
+    pdf_file = "cv.pdf"  # <-- your PDF file
+    text = extract_text_from_pdf(pdf_file)
+    json_output = parse_cv_to_json(text)
+
+    print("======= RAW MODEL OUTPUT =======")
+    print(json_output)
