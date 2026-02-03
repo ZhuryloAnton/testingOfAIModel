@@ -1,5 +1,4 @@
 import os
-import json
 import pdfplumber
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import torch
@@ -9,7 +8,6 @@ MODEL_NAME = "rmtlabs/IMCatalina-v1.0"
 RESUME_FOLDER = "./resumes"  # folder with .pdf or .txt resumes
 MAX_TOKENS = 500
 TEMPERATURE = 0.2
-OUTPUT_FOLDER = "./output"   # where JSON results will be saved
 # ----------------------------------------
 
 def load_pdf(filepath):
@@ -35,8 +33,6 @@ def load_resume(filepath):
         return ""
 
 def main():
-    os.makedirs(OUTPUT_FOLDER, exist_ok=True)
-
     # Load model
     print("Loading model...")
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
@@ -45,7 +41,7 @@ def main():
     # Process each resume
     for filename in os.listdir(RESUME_FOLDER):
         filepath = os.path.join(RESUME_FOLDER, filename)
-        print(f"\nProcessing: {filename}")
+        print(f"\n--- Processing: {filename} ---\n")
 
         resume_text = load_resume(filepath)
         if not resume_text.strip():
@@ -63,14 +59,7 @@ def main():
 
         result_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
         print(result_text)
-
-        # Save JSON output
-        json_filename = os.path.splitext(filename)[0] + ".json"
-        output_path = os.path.join(OUTPUT_FOLDER, json_filename)
-        with open(output_path, "w", encoding="utf-8") as f:
-            json.dump({"resume": resume_text, "ai_output": result_text}, f, indent=2)
-
-        print(f"Saved JSON to: {output_path}")
+        print("\n------------------------------\n")
 
 if __name__ == "__main__":
     main()
