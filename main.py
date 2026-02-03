@@ -1,82 +1,17 @@
-import os
-import pdfplumber
-from transformers import AutoTokenizer, AutoModelForCausalLM
+from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch
 
-# OCR libraries
-try:
-    import pytesseract
-    from pdf2image import convert_from_path
-    OCR_AVAILABLE = True
-except ImportError:
-    OCR_AVAILABLE = False
+model_name = "rmtlabs/IMCatalina-v1.0"
 
-# ---------------- CONFIG ----------------
-MODEL_NAME = "rmtlabs/IMCatalina-v1.0"
-RESUME_FOLDER = "./resumes"  # folder with .pdf or .txt resumes
-MAX_TOKENS = 500
-# ----------------------------------------
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.float16, device_map="auto")
 
-def load_txt(filepath):
-    with open(filepath, "r", encoding="utf-8") as f:
-        return f.read()
+def extract_json_from_cv(text):
+    prompt = f"Convert this resume text to structured JSON:\n\n{text}\n\nJSON:"
+    inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+    outputs = model.generate(**inputs, max_length=1024)
+    return tokenizer.decode(outputs[0], skip_special_tokens=True)
 
-def load_pdf(filepath):
-    """Try extracting text from PDF, fallback to OCR if empty."""
-    text = ""
-    with pdfplumber.open(filepath) as pdf:
-        for page in pdf.pages:
-            page_text = page.extract_text()
-            if page_text:
-                text += page_text + "\n"
-
-    # If pdfplumber extracted nothing, try OCR
-    if not text.strip() and OCR_AVAILABLE:
-        print("No text found in PDF, using OCR...")
-        pages = convert_from_path(filepath)
-        for page in pages:
-            text += pytesseract.image_to_string(page) + "\n"
-
-    return text
-
-def load_resume(filepath):
-    if filepath.lower().endswith(".pdf"):
-        return load_pdf(filepath)
-    elif filepath.lower().endswith(".txt"):
-        return load_txt(filepath)
-    else:
-        print(f"Unsupported file type: {filepath}")
-        return ""
-
-def main():
-    # Load model
-    print("Loading AI model...")
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-    model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, device_map="auto")
-
-    # Process resumes
-    for filename in os.listdir(RESUME_FOLDER):
-        filepath = os.path.join(RESUME_FOLDER, filename)
-        print(f"\n--- Processing: {filename} ---\n")
-
-        resume_text = load_resume(filepath)
-        if not resume_text.strip():
-            print("No text found, skipping...")
-            continue
-
-        # Tokenize and move to model device
-        inputs = tokenizer(resume_text, return_tensors="pt").to(model.device)
-
-        # Generate AI output
-        outputs = model.generate(
-            **inputs,
-            max_new_tokens=MAX_TOKENS,
-            do_sample=False  # deterministic output
-        )
-
-        result_text = tokenizer.decode(outputs[0], skip_special_tokens=True)
-        print(result_text)
-        print("\n" + "-"*60 + "\n")
-
-if __name__ == "__main__":
-    main()
+cv_text = """Your raw CV text goes here ..."""
+json_output = extract_json_from_cv(cv_text)
+print(json_output)
