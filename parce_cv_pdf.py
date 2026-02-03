@@ -52,7 +52,7 @@ JSON:
     return result
 
 if __name__ == "__main__":
-    pdf_file = "cv.pdf"  # <-- your PDF file
+    pdf_file = "ITResumePoliskoAnton.pdf"  # <-- your PDF file
     text = extract_text_from_pdf(pdf_file)
     json_output = parse_cv_to_json(text)
 
