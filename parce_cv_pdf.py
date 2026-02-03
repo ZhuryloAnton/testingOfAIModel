@@ -2,13 +2,17 @@ import pdfplumber
 import torch
 import json
 import re
+import os
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
 # =========================
 # CONFIG
 # =========================
 MODEL_NAME = "rmtlabs/IMCatalina-v1.0"
-PDF_FILE = "cv.pdf"
+CV_FOLDER = "cvs"
+OUTPUT_FOLDER = "output_json"
+
+os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
 # =========================
 # LOAD MODEL
@@ -24,9 +28,9 @@ model = AutoModelForCausalLM.from_pretrained(
 # HELPERS
 # =========================
 def clean_text(text: str) -> str:
-    # fix duplicated letters from PDF (e.g. DDeevveellooppeerr)
+    # fix duplicated letters from PDFs
     text = re.sub(r'(.)\1+', r'\1', text)
-    # remove weird unicode chars
+    # remove weird unicode symbols
     text = re.sub(r'[^\x00-\x7F]+', ' ', text)
     return text.strip()
 
@@ -39,34 +43,20 @@ def extract_text_from_pdf(pdf_path: str) -> str:
                 text += page_text + "\n"
     return clean_text(text)
 
-def extract_basic_fields(text: str) -> dict:
-    email = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', text)
-    phone = re.search(r'(\+?\d[\d\s\-]{8,}\d)', text)
-
-    lines = [l.strip() for l in text.split("\n") if l.strip()]
-    name = lines[0] if lines else ""
-
-    return {
-        "name": name,
-        "email": email.group(0) if email else "",
-        "phone": phone.group(0) if phone else ""
-    }
-
-def parse_cv_to_json(cv_text: str) -> str:
-    basic = extract_basic_fields(cv_text)
-
+def parse_cv_with_ai(cv_text: str) -> str:
     prompt = f"""
 You are a professional resume parser.
 
-Return STRICT JSON ONLY.
-Do NOT explain anything.
-Do NOT repeat the prompt.
+Analyze the resume and return STRICT JSON ONLY.
+Do not explain.
+Do not add comments.
+Do not repeat the prompt.
 
 JSON schema:
 {{
-  "name": "{basic['name']}",
-  "email": "{basic['email']}",
-  "phone": "{basic['phone']}",
+  "name": "",
+  "email": "",
+  "phone": "",
   "address": "",
   "skills": [],
   "experience": [],
@@ -74,9 +64,9 @@ JSON schema:
   "languages": []
 }}
 
-Resume text:
+Resume:
 \"\"\"
-{cv_text[:3000]}
+{cv_text[:3500]}
 \"\"\"
 
 JSON:
@@ -86,9 +76,9 @@ JSON:
 
     outputs = model.generate(
         **inputs,
-        max_new_tokens=600,
+        max_new_tokens=700,
         do_sample=True,
-        temperature=0.2,
+        temperature=0.3,
         eos_token_id=tokenizer.eos_token_id
     )
 
@@ -100,27 +90,36 @@ JSON:
     return decoded[start:end]
 
 # =========================
-# MAIN
+# MAIN LOOP
 # =========================
 if __name__ == "__main__":
-    print("📄 Loading PDF...")
-    text = extract_text_from_pdf(PDF_FILE)
+    pdf_files = [f for f in os.listdir(CV_FOLDER) if f.endswith(".pdf")]
 
-    print("🧠 Parsing CV...")
-    json_output = parse_cv_to_json(text)
+    if not pdf_files:
+        print("❌ No PDF files found in cvs/")
+        exit(1)
 
-    print("\n======= PARSED JSON =======\n")
-    print(json_output)
+    for pdf_file in pdf_files:
+        print(f"\n📄 Processing {pdf_file}...")
 
-    # validate JSON
-    try:
-        parsed = json.loads(json_output)
-        print("\n✅ JSON is valid")
+        pdf_path = os.path.join(CV_FOLDER, pdf_file)
+        text = extract_text_from_pdf(pdf_path)
 
-        # optional: save to file
-        with open("cv.json", "w") as f:
-            json.dump(parsed, f, indent=2)
-        print("💾 Saved to cv.json")
+        json_output = parse_cv_with_ai(text)
 
-    except Exception as e:
-        print("\n❌ Invalid JSON:", e)
+        try:
+            parsed = json.loads(json_output)
+
+            output_file = os.path.join(
+                OUTPUT_FOLDER,
+                pdf_file.replace(".pdf", ".json")
+            )
+
+            with open(output_file, "w") as f:
+                json.dump(parsed, f, indent=2)
+
+            print(f"✅ Saved → {output_file}")
+
+        except Exception as e:
+            print(f"❌ Failed to parse {pdf_file}")
+            print(e)
