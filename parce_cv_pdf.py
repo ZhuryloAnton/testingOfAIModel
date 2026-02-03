@@ -1,11 +1,11 @@
 import pdfplumber
+import json
 import torch
-from fastapi import FastAPI, UploadFile, File
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
-app = FastAPI()
 MODEL_NAME = "rmtlabs/IMCatalina-v1.0"
 
+# Load tokenizer & model
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_NAME,
@@ -13,21 +13,20 @@ model = AutoModelForCausalLM.from_pretrained(
     device_map="auto"
 )
 
-def extract_text_from_pdf_file(file):
+def extract_text_from_pdf(pdf_path):
     text = ""
-    with pdfplumber.open(file) as pdf:
+    with pdfplumber.open(pdf_path) as pdf:
         for page in pdf.pages:
             page_text = page.extract_text()
             if page_text:
                 text += page_text + "\n"
     return text
 
-@app.post("/parse-cv")
-async def parse_cv(file: UploadFile = File(...)):
-    text = extract_text_from_pdf_file(file.file)
-
+def parse_cv_to_json(cv_text):
     prompt = f"""
-Extract resume data and return ONLY valid JSON:
+You are an AI that extracts structured data from resumes.
+
+Return ONLY valid JSON in this format:
 {{
   "name": "",
   "email": "",
@@ -38,7 +37,7 @@ Extract resume data and return ONLY valid JSON:
 }}
 
 Resume text:
-{text}
+{cv_text}
 JSON:
 """
 
@@ -50,4 +49,12 @@ JSON:
     )
 
     result = tokenizer.decode(outputs[0], skip_special_tokens=True)
-    return {"parsed_json": result}
+    return result
+
+if __name__ == "__main__":
+    pdf_file = "cv.pdf"  # <-- your PDF file
+    text = extract_text_from_pdf(pdf_file)
+    json_output = parse_cv_to_json(text)
+
+    print("======= RAW MODEL OUTPUT =======")
+    print(json_output)
