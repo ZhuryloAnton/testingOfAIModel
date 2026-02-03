@@ -1,16 +1,25 @@
-# This is a sample Python script.
+from transformers import AutoTokenizer, AutoModelForCausalLM
+import torch
 
-# Press ⌃R to execute it or replace it with your code.
-# Press Double ⇧ to search everywhere for classes, files, tool windows, actions, and settings.
+model_name = "rmtlabs/IMCatalina-v1.0"
 
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModelForCausalLM.from_pretrained(
+    model_name,
+    torch_dtype=torch.float16,
+    device_map="auto"
+)
 
-def print_hi(name):
-    # Use a breakpoint in the code line below to debug your script.
-    print(f'Hi, {name}')  # Press ⌘F8 to toggle the breakpoint.
+prompt = "Hello, who are you?"
 
+inputs = tokenizer(prompt, return_tensors="pt").to("cuda")
 
-# Press the green button in the gutter to run the script.
-if __name__ == '__main__':
-    print_hi('PyCharm')
+with torch.no_grad():
+    outputs = model.generate(
+        **inputs,
+        max_new_tokens=100,
+        do_sample=True,
+        temperature=0.7
+    )
 
-# See PyCharm help at https://www.jetbrains.com/help/pycharm/
+print(tokenizer.decode(outputs[0], skip_special_tokens=True))
