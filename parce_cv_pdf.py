@@ -30,18 +30,18 @@ def extract_text_from_pdf(pdf_path):
     return clean_text(text)
 
 def parse_cv_to_json(cv_text):
+    basic = extract_basic_fields(cv_text)
+
     prompt = f"""
 You are a resume parser.
-Extract the resume into STRICT JSON ONLY.
-Do not explain anything.
-Do not repeat the prompt.
+Return STRICT JSON ONLY.
 
-Return EXACTLY this JSON structure:
+If a field is already provided, reuse it.
 
 {{
-  "name": "",
-  "email": "",
-  "phone": "",
+  "name": "{basic['name']}",
+  "email": "{basic['email']}",
+  "phone": "{basic['phone']}",
   "address": "",
   "skills": [],
   "experience": [],
@@ -56,6 +56,8 @@ Resume:
 
 JSON:
 """
+
+
 
     inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
 
