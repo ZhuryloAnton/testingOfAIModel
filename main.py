@@ -1,41 +1,40 @@
-from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
+from transformers import AutoTokenizer, AutoModelForCausalLM
+import pdfplumber
 import torch
-import json
 
-model_name = "rmtlabs/IMCatalina-v1.0"
+MODEL_NAME = "rmtlabs/IMCatalina-v1.0"
+RESUME_FILE = "resume.pdf"  # your resume file in PDF
+MAX_TOKENS = 500
+TEMPERATURE = 0.2
 
-tokenizer = AutoTokenizer.from_pretrained(model_name)
-model = AutoModelForCausalLM.from_pretrained(
-    model_name,
-    dtype=torch.float16,
-    device_map="auto"
-)
+def load_resume():
+    text=""
+    with pdfplumber.open(filepath) as pdf:
+        for page in pdf.pages:
+            text = page.extract_text()
+            if text:
+                text += text + "\n"
+    return text
 
-# Use a clear instruction
-prompt = """
-Extract structured CV information from the text below.
-Provide output exactly in JSON format with these fields:
-{name, age, experience: [{company, years}], skills}
-Do not add any extra words.
+def main():
+    print("I am loading my LORD")
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
+    model = AutoModelForCausalLM.from_pretrained(MODEL_NAME, device_map="auto")
 
-CV text:
-My Name Anton, I have 30 years old experience, I worked in Amazon 5 years, Apple 5 years, Google 10 years, Microsoft 10 years, I like cooking
-"""
+    resume_text = load_resume(RESUME_FILE)
+    print("I teared out the information :>")
+    inputs = tokenizer(resume_text, return_tensors="pt").to(model.device)
 
-# Use pipeline for easier handling
-generator = pipeline("text-generation", model=model, tokenizer=tokenizer, device=0)
+    output = model.generate(
+        **inputs,
+        max_new_tokens=MAX_TOKENS,
+        temperature=TEMPERATURE,
+        do_sample=False
+    )
 
-output = generator(prompt, max_new_tokens=150, do_sample=False)
-raw_text = output[0]['generated_text']
+    result = tokenizer.decode(output[0], skip_special_tokens=True)
+    print("output")
+    print(result)
 
-print("Raw output:\n", raw_text)
-
-# Try parsing JSON
-try:
-    json_start = raw_text.find("{")
-    json_end = raw_text.rfind("}") + 1
-    data_json = raw_text[json_start:json_end]
-    data = json.loads(data_json)
-    print("\nParsed JSON:\n", data)
-except Exception as e:
-    print("JSON parsing failed:", e)
+if __name__ == "__main__":
+    main()
