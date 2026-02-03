@@ -10,7 +10,7 @@ model = AutoModelForCausalLM.from_pretrained(
     device_map="auto"
 )
 
-prompt = "Hello, who are you?"
+prompt = "Ultra super sinior python developer with 20 years experience"
 
 inputs = tokenizer(prompt, return_tensors="pt").to("cuda")
 
