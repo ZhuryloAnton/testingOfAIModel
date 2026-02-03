@@ -4,8 +4,15 @@ import json
 import re
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
+# =========================
+# CONFIG
+# =========================
 MODEL_NAME = "rmtlabs/IMCatalina-v1.0"
+PDF_FILE = "cv.pdf"
 
+# =========================
+# LOAD MODEL
+# =========================
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_NAME,
@@ -13,14 +20,17 @@ model = AutoModelForCausalLM.from_pretrained(
     device_map="auto"
 )
 
+# =========================
+# HELPERS
+# =========================
 def clean_text(text: str) -> str:
-    # remove duplicated characters like "DDiiggiittaalliizzeedd"
+    # fix duplicated letters from PDF (e.g. DDeevveellooppeerr)
     text = re.sub(r'(.)\1+', r'\1', text)
-    # remove strange symbols
+    # remove weird unicode chars
     text = re.sub(r'[^\x00-\x7F]+', ' ', text)
     return text.strip()
 
-def extract_text_from_pdf(pdf_path):
+def extract_text_from_pdf(pdf_path: str) -> str:
     text = ""
     with pdfplumber.open(pdf_path) as pdf:
         for page in pdf.pages:
@@ -29,15 +39,30 @@ def extract_text_from_pdf(pdf_path):
                 text += page_text + "\n"
     return clean_text(text)
 
-def parse_cv_to_json(cv_text):
+def extract_basic_fields(text: str) -> dict:
+    email = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', text)
+    phone = re.search(r'(\+?\d[\d\s\-]{8,}\d)', text)
+
+    lines = [l.strip() for l in text.split("\n") if l.strip()]
+    name = lines[0] if lines else ""
+
+    return {
+        "name": name,
+        "email": email.group(0) if email else "",
+        "phone": phone.group(0) if phone else ""
+    }
+
+def parse_cv_to_json(cv_text: str) -> str:
     basic = extract_basic_fields(cv_text)
 
     prompt = f"""
-You are a resume parser.
+You are a professional resume parser.
+
 Return STRICT JSON ONLY.
+Do NOT explain anything.
+Do NOT repeat the prompt.
 
-If a field is already provided, reuse it.
-
+JSON schema:
 {{
   "name": "{basic['name']}",
   "email": "{basic['email']}",
@@ -49,15 +74,13 @@ If a field is already provided, reuse it.
   "languages": []
 }}
 
-Resume:
+Resume text:
 \"\"\"
 {cv_text[:3000]}
 \"\"\"
 
 JSON:
 """
-
-
 
     inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
 
@@ -69,24 +92,35 @@ JSON:
         eos_token_id=tokenizer.eos_token_id
     )
 
-    result = tokenizer.decode(outputs[0], skip_special_tokens=True)
+    decoded = tokenizer.decode(outputs[0], skip_special_tokens=True)
 
     # extract JSON safely
-    json_start = result.find("{")
-    json_end = result.rfind("}") + 1
-    return result[json_start:json_end]
+    start = decoded.find("{")
+    end = decoded.rfind("}") + 1
+    return decoded[start:end]
 
+# =========================
+# MAIN
+# =========================
 if __name__ == "__main__":
-    pdf_file = "cv.pdf"
-    text = extract_text_from_pdf(pdf_file)
+    print("📄 Loading PDF...")
+    text = extract_text_from_pdf(PDF_FILE)
+
+    print("🧠 Parsing CV...")
     json_output = parse_cv_to_json(text)
 
     print("\n======= PARSED JSON =======\n")
     print(json_output)
 
-    # optional: validate JSON
+    # validate JSON
     try:
         parsed = json.loads(json_output)
         print("\n✅ JSON is valid")
+
+        # optional: save to file
+        with open("cv.json", "w") as f:
+            json.dump(parsed, f, indent=2)
+        print("💾 Saved to cv.json")
+
     except Exception as e:
         print("\n❌ Invalid JSON:", e)
