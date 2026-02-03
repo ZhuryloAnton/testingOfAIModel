@@ -1,17 +1,24 @@
 import pdfplumber
-import json
 import torch
+import json
+import re
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
 MODEL_NAME = "rmtlabs/IMCatalina-v1.0"
 
-# Load tokenizer & model
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_NAME,
-    torch_dtype=torch.float16,
+    dtype=torch.float16,
     device_map="auto"
 )
+
+def clean_text(text: str) -> str:
+    # remove duplicated characters like "DDiiggiittaalliizzeedd"
+    text = re.sub(r'(.)\1+', r'\1', text)
+    # remove strange symbols
+    text = re.sub(r'[^\x00-\x7F]+', ' ', text)
+    return text.strip()
 
 def extract_text_from_pdf(pdf_path):
     text = ""
@@ -20,41 +27,64 @@ def extract_text_from_pdf(pdf_path):
             page_text = page.extract_text()
             if page_text:
                 text += page_text + "\n"
-    return text
+    return clean_text(text)
 
 def parse_cv_to_json(cv_text):
     prompt = f"""
-You are an AI that extracts structured data from resumes.
+You are a resume parser.
+Extract the resume into STRICT JSON ONLY.
+Do not explain anything.
+Do not repeat the prompt.
 
-Return ONLY valid JSON in this format:
+Return EXACTLY this JSON structure:
+
 {{
   "name": "",
   "email": "",
   "phone": "",
+  "address": "",
   "skills": [],
   "experience": [],
-  "education": []
+  "education": [],
+  "languages": []
 }}
 
-Resume text:
-{cv_text}
+Resume:
+\"\"\"
+{cv_text[:3000]}
+\"\"\"
+
 JSON:
 """
 
     inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+
     outputs = model.generate(
         **inputs,
-        max_new_tokens=800,
-        temperature=0.1
+        max_new_tokens=600,
+        do_sample=True,
+        temperature=0.2,
+        eos_token_id=tokenizer.eos_token_id
     )
 
     result = tokenizer.decode(outputs[0], skip_special_tokens=True)
-    return result
+
+    # extract JSON safely
+    json_start = result.find("{")
+    json_end = result.rfind("}") + 1
+    return result[json_start:json_end]
 
 if __name__ == "__main__":
-    pdf_file = "cv.pdf"  # <-- your PDF file
+    pdf_file = "cv.pdf"
     text = extract_text_from_pdf(pdf_file)
     json_output = parse_cv_to_json(text)
 
-    print("======= RAW MODEL OUTPUT =======")
+    print("\n======= PARSED JSON =======\n")
     print(json_output)
+
+    # optional: validate JSON
+    try:
+        parsed = json.loads(json_output)
+        print("\n✅ JSON is valid")
+    except Exception as e:
+        print("\n❌ Invalid JSON:", e)
