@@ -10,7 +10,9 @@ model = AutoModelForCausalLM.from_pretrained(
     device_map="auto"
 )
 
-prompt = "Write a friendly email asking a colleague to join a meeting at 3 PM."
+prompt = ("Extract the job experience and technology skills from this CV "
+          "My Name Anton, I have 30 years old experience, I worked in Amazon 5 years, Apple 5 years, Google 10 years, Mirosoft 10 years, I like cooking ")
+
 
 inputs = tokenizer(prompt, return_tensors="pt").to("cuda")
 
