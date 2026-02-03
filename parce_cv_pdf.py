@@ -1,8 +1,9 @@
+import os
+import json
 import pdfplumber
 import torch
-import json
-import re
-import os
+import pytesseract
+from PIL import Image
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
 # =========================
@@ -17,42 +18,42 @@ os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 # =========================
 # LOAD MODEL
 # =========================
+print("🧠 Loading AI model...")
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_NAME,
-    dtype=torch.float16,
+    torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
     device_map="auto"
 )
 
 # =========================
-# HELPERS
+# PDF + OCR TEXT EXTRACTION
 # =========================
-def clean_text(text: str) -> str:
-    # fix duplicated letters from PDFs
-    text = re.sub(r'(.)\1+', r'\1', text)
-    # remove weird unicode symbols
-    text = re.sub(r'[^\x00-\x7F]+', ' ', text)
-    return text.strip()
-
-def extract_text_from_pdf(pdf_path: str) -> str:
+def extract_text_with_ocr(pdf_path):
     text = ""
     with pdfplumber.open(pdf_path) as pdf:
         for page in pdf.pages:
             page_text = page.extract_text()
-            if page_text:
+            if page_text and len(page_text.strip()) > 30:
                 text += page_text + "\n"
-    return clean_text(text)
+            else:
+                # OCR fallback
+                try:
+                    image = page.to_image(resolution=300).original
+                    ocr_text = pytesseract.image_to_string(image)
+                    text += ocr_text + "\n"
+                except Exception as e:
+                    print("⚠ OCR failed:", e)
+    return text.strip()
 
-def parse_cv_with_ai(cv_text: str) -> str:
+# =========================
+# AI PARSING
+# =========================
+def parse_with_ai(cv_text):
     prompt = f"""
-You are a professional resume parser.
+You are an AI that extracts structured data from CVs.
 
-Analyze the resume and return STRICT JSON ONLY.
-Do not explain.
-Do not add comments.
-Do not repeat the prompt.
-
-JSON schema:
+Return ONLY valid JSON with this schema:
 {{
   "name": "",
   "email": "",
@@ -64,62 +65,73 @@ JSON schema:
   "languages": []
 }}
 
-Resume:
+CV TEXT:
 \"\"\"
-{cv_text[:3500]}
+{cv_text}
 \"\"\"
-
-JSON:
 """
 
     inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
 
-    outputs = model.generate(
-        **inputs,
-        max_new_tokens=700,
-        do_sample=True,
-        temperature=0.3,
-        eos_token_id=tokenizer.eos_token_id
-    )
+    with torch.no_grad():
+        output = model.generate(
+            **inputs,
+            max_new_tokens=700,
+            temperature=0.2,
+            do_sample=False
+        )
 
-    decoded = tokenizer.decode(outputs[0], skip_special_tokens=True)
+    response = tokenizer.decode(output[0], skip_special_tokens=True)
 
-    # extract JSON safely
-    start = decoded.find("{")
-    end = decoded.rfind("}") + 1
-    return decoded[start:end]
+    # Try to extract JSON safely
+    try:
+        json_start = response.find("{")
+        json_end = response.rfind("}") + 1
+        json_text = response[json_start:json_end]
+        return json.loads(json_text)
+    except Exception:
+        print("❌ AI returned invalid JSON")
+        return {
+            "name": "",
+            "email": "",
+            "phone": "",
+            "address": "",
+            "skills": [],
+            "experience": [],
+            "education": [],
+            "languages": []
+        }
 
 # =========================
-# MAIN LOOP
+# MAIN
 # =========================
+def main():
+    pdfs = [f for f in os.listdir(CV_FOLDER) if f.lower().endswith(".pdf")]
+
+    if not pdfs:
+        print("❌ No PDFs found in cvs/")
+        return
+
+    for pdf in pdfs:
+        pdf_path = os.path.join(CV_FOLDER, pdf)
+        print(f"\n📄 Processing {pdf}...")
+
+        text = extract_text_with_ocr(pdf_path)
+
+        if len(text) < 50:
+            print("⚠ Very little text extracted")
+
+        data = parse_with_ai(text)
+
+        output_file = os.path.join(
+            OUTPUT_FOLDER,
+            pdf.replace(".pdf", ".json")
+        )
+
+        with open(output_file, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+
+        print(f"✅ Saved → {output_file}")
+
 if __name__ == "__main__":
-    pdf_files = [f for f in os.listdir(CV_FOLDER) if f.endswith(".pdf")]
-
-    if not pdf_files:
-        print("❌ No PDF files found in cvs/")
-        exit(1)
-
-    for pdf_file in pdf_files:
-        print(f"\n📄 Processing {pdf_file}...")
-
-        pdf_path = os.path.join(CV_FOLDER, pdf_file)
-        text = extract_text_from_pdf(pdf_path)
-
-        json_output = parse_cv_with_ai(text)
-
-        try:
-            parsed = json.loads(json_output)
-
-            output_file = os.path.join(
-                OUTPUT_FOLDER,
-                pdf_file.replace(".pdf", ".json")
-            )
-
-            with open(output_file, "w") as f:
-                json.dump(parsed, f, indent=2)
-
-            print(f"✅ Saved → {output_file}")
-
-        except Exception as e:
-            print(f"❌ Failed to parse {pdf_file}")
-            print(e)
+    main()
