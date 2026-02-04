@@ -120,11 +120,51 @@ def bullets_to_json(text: str) -> dict:
         "education": extract("Education")
     }
 
+def normalize_resume_text(text: str) -> str:
+    """
+    Convert short / keyword-style input into resume-like sentences
+    so resume LLMs can understand it.
+    """
+    text = text.strip()
 
+    # If it's very short or comma-separated, expand it
+    if len(text.split()) < 25 or "," in text:
+        parts = [p.strip() for p in text.split(",") if p.strip()]
+
+        sentences = []
+        skills = []
+        education = []
+        roles = []
+        experience = []
+
+        for p in parts:
+            lower = p.lower()
+            if "year" in lower:
+                experience.append(p)
+            elif any(k in lower for k in ["engineer", "developer", "manager"]):
+                roles.append(p)
+            elif any(k in lower for k in ["harvard", "university", "college", "school"]):
+                education.append(p)
+            else:
+                skills.append(p)
+
+        if roles:
+            sentences.append(f"Worked as {', '.join(roles)}.")
+        if experience:
+            sentences.append(f"Has {', '.join(experience)} of professional experience.")
+        if skills:
+            sentences.append(f"Skilled in {', '.join(skills)}.")
+        if education:
+            sentences.append(f"Education includes {', '.join(education)}.")
+
+        return " ".join(sentences)
+
+    return text
 # ===============================
 # PUBLIC API
 # ===============================
 def parse_resume(resume_text: str) -> dict:
+    resume_text = normalize_resume_text(resume_text)
     raw_output = extract_resume_bullets(resume_text)
     structured = bullets_to_json(raw_output)
     return structured
