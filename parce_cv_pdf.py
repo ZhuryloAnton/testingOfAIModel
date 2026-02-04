@@ -91,9 +91,9 @@ Return JSON only.
 # ===============================
 if __name__ == "__main__":
     resume = """
-Senior Software Engineer with 8+ years of experience.
-Expert in Python, PyTorch, NLP, and LLM deployment.
-Worked at Google and Amazon.
-MSc in Computer Science from Stanford University.
+Senior Software Engineer with 20+ years of experience.
+Expert in Python, PyTorch, NLP, and LLM deployment, also Java and Kafka.
+Worked at Google, Amazon and Apple.
+MSc in Data Science from Stanford University.
 """
     run_model(resume)
