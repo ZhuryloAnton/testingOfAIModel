@@ -5,7 +5,7 @@ import psutil
 # ===============================
 # CONFIG
 # ===============================
-MODEL_ID = "rmtlabs/IMCatalina-v1.0"
+MODEL_ID = "Qwen/Qwen2.5-3B-Instruct"
 
 # ===============================
 # SYSTEM INFO
@@ -20,15 +20,18 @@ def print_system_info():
 
 print_system_info()
 
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
+
 # ===============================
 # LOAD MODEL
 # ===============================
-tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, use_fast=True)
+tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID,
-    dtype=torch.float16,
     device_map="auto",
+    torch_dtype=torch.float16,
     low_cpu_mem_usage=True
 )
 
@@ -36,42 +39,61 @@ model.eval()
 print("✅ Model loaded successfully")
 
 # ===============================
-# RAW GENERATION (NO MANIPULATION)
+# RAW GENERATION TEST
 # ===============================
-def run_raw_generation(user_input: str):
-    prompt = user_input.strip()
+def run_model(resume_text: str):
+    messages = [
+        {
+            "role": "system",
+            "content": "You are an expert resume parser."
+        },
+        {
+            "role": "user",
+            "content": f"""
+Extract the following fields from the resume and return STRICT JSON:
 
-    inputs = tokenizer(
-        prompt,
-        return_tensors="pt",
-        truncation=True,
-        max_length=4096
+- skills (array)
+- years_of_experience (string)
+- job_roles (array)
+- education (array)
+
+Resume:
+{resume_text}
+
+Return JSON only.
+"""
+        }
+    ]
+
+    prompt = tokenizer.apply_chat_template(
+        messages,
+        tokenize=False,
+        add_generation_prompt=True
     )
 
-    inputs = {k: v.to(model.device) for k, v in inputs.items()}
+    inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
 
     with torch.no_grad():
         output = model.generate(
             **inputs,
-            max_new_tokens=300,
-            do_sample=False,          # deterministic
-            eos_token_id=tokenizer.eos_token_id
+            max_new_tokens=256,
+            do_sample=False,
+            temperature=0.0,
+            repetition_penalty=1.1
         )
 
     text = tokenizer.decode(output[0], skip_special_tokens=True)
-    return text
+    print("\n🧠 RAW MODEL OUTPUT:\n")
+    print(text)
 
 # ===============================
 # TEST
 # ===============================
 if __name__ == "__main__":
-    user_input = """
-    put all next information in json format(
-40 years, Senior Engineer, java, python, javaScrip, Harvard)
+    resume = """
+Senior Software Engineer with 8+ years of experience.
+Expert in Python, PyTorch, NLP, and LLM deployment.
+Worked at Google and Amazon.
+MSc in Computer Science from Stanford University.
 """
-
-    print("\n🧠 RAW MODEL OUTPUT:")
-    print("--------------------------------------------------")
-    result = run_raw_generation(user_input)
-    print(result)
-    print("--------------------------------------------------")
+    run_model(resume)
