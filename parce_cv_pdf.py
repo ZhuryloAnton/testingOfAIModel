@@ -133,7 +133,7 @@ def parse_resume(resume_text: str) -> dict:
 # TEST
 # ===============================
 if __name__ == "__main__":
-    resume_text = "Senior Engineer"
+    resume_text = "40 years, Senior Engineer, java, python, javaScrip, Harvard"
 
     result = parse_resume(resume_text)
     print("\n📄 Parsed Resume JSON:")
