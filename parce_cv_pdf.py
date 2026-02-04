@@ -72,7 +72,7 @@ def generate_section(resume_text: str, section_name: str) -> str:
     with torch.no_grad():
         output = model.generate(
             **inputs,
-            max_new_tokens=MAX_NEW_TOKENS,
+            max_new_tokens=80,
             do_sample=False,
             repetition_penalty=1.1,
             eos_token_id=tokenizer.eos_token_id,
@@ -81,22 +81,39 @@ def generate_section(resume_text: str, section_name: str) -> str:
 
     text = tokenizer.decode(output[0], skip_special_tokens=True)
 
-    # Remove prompt echo
-    if section_name in text:
-        text = text.split(section_name, 1)[-1]
+    # 1️⃣ Remove everything up to the SECOND section header
+    parts = text.split(section_name)
+    if len(parts) >= 3:
+        text = parts[2]
+    elif len(parts) == 2:
+        text = parts[1]
+    else:
+        text = ""
 
-    # Hard stop on garbage signals
-    lines = []
+    # 2️⃣ Remove echoed resume lines
+    for line in resume_text.strip().splitlines():
+        text = text.replace(line.strip(), "")
+
+    # 3️⃣ Stop on garbage signals
+    BAD_STOP_WORDS = [
+        "Date", "CARE", "CURER", "Father", "Address",
+        "Synopsis", "Electrical", "JOB"
+    ]
+
+    clean_lines = []
     for line in text.splitlines():
         if any(bad.lower() in line.lower() for bad in BAD_STOP_WORDS):
             break
-        lines.append(line)
+        clean_lines.append(line)
 
-    cleaned = "\n".join(lines).strip()
+    cleaned = "\n".join(clean_lines).strip()
 
-    # Final safety cleanup
-    cleaned = re.sub(r"\s{2,}", " ", cleaned)
+    # 4️⃣ Final normalization
+    cleaned = cleaned.replace(section_name, "").strip()
+    cleaned = " ".join(cleaned.split())
+
     return cleaned
+
 
 # ===============================
 # DEMO
