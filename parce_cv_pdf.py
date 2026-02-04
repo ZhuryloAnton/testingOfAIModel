@@ -8,7 +8,7 @@ import psutil
 MODEL_ID = "Qwen/Qwen2.5-3B-Instruct"
 
 # ===============================
-# SYSTEM INFO
+# SYSTEM INF O
 # ===============================
 def print_system_info():
     print("🖥 System Info")
