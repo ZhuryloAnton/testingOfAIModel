@@ -37,19 +37,20 @@ model.eval()
 print("✅ Model loaded successfully")
 
 def analyze_resume(resume_text):
-    prompt = f"""
-You are an expert resume parser.
-Extract structured information from the resume below.
-
-Resume:
-{resume_text}
-
-Return the result in JSON with these exact keys:
-- skills
-- years_of_experience
-- job_roles
-- education
-"""
+    prompt = (
+        "TASK: Extract structured data from the resume.\n"
+        "OUTPUT FORMAT: JSON ONLY.\n"
+        "DO NOT add explanations.\n"
+        "DO NOT continue the resume.\n\n"
+        "FIELDS:\n"
+        "- skills (array of strings)\n"
+        "- years_of_experience (string)\n"
+        "- job_roles (array of strings)\n"
+        "- education (array of strings)\n\n"
+        "RESUME:\n"
+        f"{resume_text}\n\n"
+        "JSON:"
+    )
 
     inputs = tokenizer(
         prompt,
@@ -61,14 +62,22 @@ Return the result in JSON with these exact keys:
     with torch.no_grad():
         output = model.generate(
             **inputs,
-            max_new_tokens=256,
-            do_sample=False,
-            temperature=0.0,
-            repetition_penalty=1.2,
-            no_repeat_ngram_size=4
+            max_new_tokens=200,
+            do_sample=False,                # greedy
+            repetition_penalty=1.25,        # 🔥 important
+            no_repeat_ngram_size=5,          # 🔥 important
+            eos_token_id=tokenizer.eos_token_id,
+            pad_token_id=tokenizer.eos_token_id
         )
 
-    return tokenizer.decode(output[0], skip_special_tokens=True)
+    text = tokenizer.decode(output[0], skip_special_tokens=True)
+
+    # Hard cut after JSON (extra safety)
+    if "}" in text:
+        text = text[: text.rfind("}") + 1]
+
+    return text
+
 
 resume_text = """
 Senior Software Engineer with 8+ years of experience.
