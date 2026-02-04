@@ -1,10 +1,19 @@
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import psutil
-import os
+import re
+import json
 
+# ===============================
+# CONFIG
+# ===============================
 MODEL_ID = "rmtlabs/IMCatalina-v1.0"
+MAX_INPUT_LEN = 4096
+MAX_NEW_TOKENS = 200
 
+# ===============================
+# SYSTEM INFO
+# ===============================
 def print_system_info():
     print("🖥 System Info")
     print(f"CPU RAM: {psutil.virtual_memory().total / 1e9:.1f} GB")
@@ -15,15 +24,14 @@ def print_system_info():
 
 print_system_info()
 
-# Enable faster GPU math
+# Enable fast math
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
 
-# Load tokenizer
-tokenizer = AutoTokenizer.from_pretrained(
-    MODEL_ID,
-    use_fast=True
-)
+# ===============================
+# LOAD MODEL
+# ===============================
+tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, use_fast=True)
 
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID,
@@ -33,58 +41,86 @@ model = AutoModelForCausalLM.from_pretrained(
 )
 
 model.eval()
-
 print("✅ Model loaded successfully")
 
-def analyze_resume(resume_text):
+# ===============================
+# STAGE 1: MODEL EXTRACTION
+# ===============================
+def extract_resume_bullets(resume_text: str) -> str:
     prompt = (
-        "TASK: Extract structured data from the resume.\n"
-        "OUTPUT FORMAT: JSON ONLY.\n"
-        "DO NOT add explanations.\n"
-        "DO NOT continue the resume.\n\n"
-        "FIELDS:\n"
-        "- skills (array of strings)\n"
-        "- years_of_experience (string)\n"
-        "- job_roles (array of strings)\n"
-        "- education (array of strings)\n\n"
-        "RESUME:\n"
-        f"{resume_text}\n\n"
-        "JSON:"
+        "Extract the following information from the resume.\n"
+        "Use short bullet points only.\n"
+        "Do not add extra sections.\n\n"
+        "Skills:\n"
+        "Experience:\n"
+        "Job Titles:\n"
+        "Education:\n\n"
+        "Resume:\n"
+        f"{resume_text}\n"
     )
 
     inputs = tokenizer(
         prompt,
         return_tensors="pt",
         truncation=True,
-        max_length=4096
-    ).to(model.device)
+        max_length=MAX_INPUT_LEN,
+        add_special_tokens=True
+    )
+
+    inputs = {k: v.to(model.device) for k, v in inputs.items()}
 
     with torch.no_grad():
         output = model.generate(
             **inputs,
-            max_new_tokens=200,
-            do_sample=False,                # greedy
-            repetition_penalty=1.25,        # 🔥 important
-            no_repeat_ngram_size=5,          # 🔥 important
+            max_new_tokens=MAX_NEW_TOKENS,
+            do_sample=False,
+            repetition_penalty=1.2,
+            no_repeat_ngram_size=5,
             eos_token_id=tokenizer.eos_token_id,
             pad_token_id=tokenizer.eos_token_id
         )
 
-    text = tokenizer.decode(output[0], skip_special_tokens=True)
+    return tokenizer.decode(output[0], skip_special_tokens=True)
 
-    # Hard cut after JSON (extra safety)
-    if "}" in text:
-        text = text[: text.rfind("}") + 1]
+# ===============================
+# STAGE 2: BULLETS → JSON
+# ===============================
+def bullets_to_json(text: str) -> dict:
+    def extract(section):
+        pattern = rf"{section}:\n(.*?)(\n\n|$)"
+        match = re.search(pattern, text, re.S | re.I)
+        if not match:
+            return []
+        lines = match.group(1).splitlines()
+        return [l.lstrip("-• ").strip() for l in lines if l.strip()]
 
-    return text
+    experience = extract("Experience")
+    return {
+        "skills": extract("Skills"),
+        "years_of_experience": experience[0] if experience else "",
+        "job_roles": extract("Job Titles"),
+        "education": extract("Education")
+    }
 
+# ===============================
+# PUBLIC API
+# ===============================
+def parse_resume(resume_text: str) -> dict:
+    raw_output = extract_resume_bullets(resume_text)
+    structured = bullets_to_json(raw_output)
+    return structured
 
-resume_text = """
-Senior Software Engineer with 8+ years of experience.
-Expert in Python, PyTorch, NLP, and LLM deployment.
-Worked at Google and Amazon.
-MSc in Computer Science from Stanford University.
-"""
+# ===============================
+# TEST
+# ===============================
+if __name__ == "__main__":
+    resume_text = """
+    Senior Software Engineer with 8+ years of experience.
+    Expert in Python, PyTorch, NLP, and LLM deployment.
+    Worked at Google and Amazon.
+    MSc in Computer Science from Stanford University.
+    """
 
-result = analyze_resume(resume_text)
-print(result)
+    result = parse_resume(resume_text)
+    print("\n📄 Parsed Resume JSON:")
+    print(json.dumps(result, indent=2))
