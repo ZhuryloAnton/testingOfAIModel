@@ -48,13 +48,19 @@ print("✅ Model loaded successfully")
 # ===============================
 def extract_resume_bullets(resume_text: str) -> str:
     prompt = (
-        "Extract the following information from the resume.\n"
-        "Use short bullet points only.\n"
-        "Do not add extra sections.\n\n"
+        "Extract information from the resume.\n"
+        "IMPORTANT RULES:\n"
+        "- Use bullet points starting with '- '\n"
+        "- If information is missing, leave the section empty\n"
+        "- Do NOT repeat section titles as content\n\n"
         "Skills:\n"
+        "- \n"
         "Experience:\n"
+        "- \n"
         "Job Titles:\n"
-        "Education:\n\n"
+        "- \n"
+        "Education:\n"
+        "- \n\n"
         "Resume:\n"
         f"{resume_text}\n"
     )
@@ -82,25 +88,38 @@ def extract_resume_bullets(resume_text: str) -> str:
 
     return tokenizer.decode(output[0], skip_special_tokens=True)
 
+
 # ===============================
 # STAGE 2: BULLETS → JSON
 # ===============================
 def bullets_to_json(text: str) -> dict:
+    SECTION_NAMES = {"skills", "experience", "job titles", "education", "resume"}
+
     def extract(section):
         pattern = rf"{section}:\n(.*?)(\n\n|$)"
         match = re.search(pattern, text, re.S | re.I)
         if not match:
             return []
-        lines = match.group(1).splitlines()
-        return [l.lstrip("-• ").strip() for l in lines if l.strip()]
+
+        items = []
+        for line in match.group(1).splitlines():
+            line = line.lstrip("-• ").strip()
+            if not line:
+                continue
+            if line.lower().rstrip(":") in SECTION_NAMES:
+                continue
+            items.append(line)
+        return items
 
     experience = extract("Experience")
+
     return {
         "skills": extract("Skills"),
         "years_of_experience": experience[0] if experience else "",
         "job_roles": extract("Job Titles"),
         "education": extract("Education")
     }
+
 
 # ===============================
 # PUBLIC API
