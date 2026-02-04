@@ -1,111 +1,81 @@
-import json
-import re
-import pdfplumber
-import pytesseract
+import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
+import psutil
+import os
 
-MODEL_NAME = "rmtlabs/IMCatalina-v1.0"
-PDF_PATH = "cv.pdf"
-OUTPUT_JSON = "cv.json"
+MODEL_ID = "rmtlabs/IMCatalina-v1.0"
 
-print("🚀 Loading Catalina model...")
-tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
-model = AutoModelForCausalLM.from_pretrained(
-    MODEL_NAME,
-    device_map="auto"
+def print_system_info():
+    print("🖥 System Info")
+    print(f"CPU RAM: {psutil.virtual_memory().total / 1e9:.1f} GB")
+    print(f"CUDA Available: {torch.cuda.is_available()}")
+    if torch.cuda.is_available():
+        print(f"GPU: {torch.cuda.get_device_name(0)}")
+        print(f"VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
+
+print_system_info()
+
+# Enable faster GPU math
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
+
+# Load tokenizer
+tokenizer = AutoTokenizer.from_pretrained(
+    MODEL_ID,
+    use_fast=True
 )
 
-# ---------------------------
-# Extract text (PDF + OCR)
-# ---------------------------
-def extract_text_from_pdf(path):
-    text = ""
-    with pdfplumber.open(path) as pdf:
-        for page in pdf.pages:
-            t = page.extract_text()
-            if t and t.strip():
-                text += t + "\n"
-            else:
-                img = page.to_image(resolution=300).original
-                text += pytesseract.image_to_string(img) + "\n"
-    return text[:8000]  # IMPORTANT: limit context
+# Load model with aggressive GPU usage
+model = AutoModelForCausalLM.from_pretrained(
+    MODEL_ID,
+    torch_dtype=torch.float16,
+    device_map="auto",          # spreads layers safely on GPU
+    low_cpu_mem_usage=True
+)
 
-# ---------------------------
-# Extract JSON safely
-# ---------------------------
-def extract_json(text):
-    match = re.search(r"\{[\s\S]*\}", text)
-    if not match:
-        return None
-    return match.group(0)
+model.eval()
 
-# ---------------------------
-# Ask Catalina to COMPLETE JSON
-# ---------------------------
-def parse_cv_with_ai(cv_text):
+print("✅ Model loaded successfully")
+
+def analyze_resume(resume_text, max_tokens=512):
     prompt = f"""
-Resume:
-\"\"\"
-{cv_text}
-\"\"\"
+    You are an AI assistant specialized in resume analysis.
+    
+    Resume:
+    {resume_text}
+    
+    Extract:
+    - Key skills
+    - Years of experience
+    - Job roles
+    - Education
+    """
 
-JSON:
-{{
-  "name": "
+
+    inputs = tokenizer(
+        prompt,
+        return_tensors="pt",
+        truncation=True,
+        max_length=4096
+    ).to(model.device)
+
+    with torch.no_grad():
+        output = model.generate(
+            **inputs,
+            max_new_tokens=max_tokens,
+            do_sample=True,
+            temperature=0.3,
+            top_p=0.9
+        )
+
+    return tokenizer.decode(output[0], skip_special_tokens=True)
+
+resume_text = """
+Senior Software Engineer with 8+ years of experience.
+Expert in Python, PyTorch, NLP, and LLM deployment.
+Worked at Google and Amazon.
+MSc in Computer Science from Stanford University.
 """
 
-    inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
-
-    output = model.generate(
-        **inputs,
-        max_new_tokens=500,
-        do_sample=False
-    )
-
-    response = tokenizer.decode(output[0], skip_special_tokens=True)
-
-    json_text = extract_json(response)
-
-    if not json_text:
-        print("\n⚠️ Model failed to produce JSON. Raw output:\n")
-        print(response)
-        return {
-            "name": "",
-            "email": "",
-            "phone": "",
-            "address": "",
-            "skills": [],
-            "experience": [],
-            "education": [],
-            "languages": []
-        }
-
-    try:
-        return json.loads(json_text)
-    except Exception:
-        print("\n⚠️ Invalid JSON produced:\n")
-        print(json_text)
-        return {
-            "name": "",
-            "email": "",
-            "phone": "",
-            "address": "",
-            "skills": [],
-            "experience": [],
-            "education": [],
-            "languages": []
-        }
-
-# ---------------------------
-# MAIN
-# ---------------------------
-print("📄 Reading CV...")
-cv_text = extract_text_from_pdf(PDF_PATH)
-
-print("🧠 Parsing with AI...")
-cv_data = parse_cv_with_ai(cv_text)
-
-with open(OUTPUT_JSON, "w") as f:
-    json.dump(cv_data, f, indent=2)
-
-print(f"✅ Done → {OUTPUT_JSON}")
+result = analyze_resume(resume_text)
+print(result)
