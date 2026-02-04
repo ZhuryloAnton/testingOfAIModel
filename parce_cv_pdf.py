@@ -69,3 +69,13 @@ Return the result in JSON with these exact keys:
         )
 
     return tokenizer.decode(output[0], skip_special_tokens=True)
+
+resume_text = """
+Senior Software Engineer with 8+ years of experience.
+Expert in Python, PyTorch, NLP, and LLM deployment.
+Worked at Google and Amazon.
+MSc in Computer Science from Stanford University.
+"""
+
+result = analyze_resume(resume_text)
+print(result)
