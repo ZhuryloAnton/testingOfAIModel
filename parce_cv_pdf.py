@@ -25,11 +25,10 @@ tokenizer = AutoTokenizer.from_pretrained(
     use_fast=True
 )
 
-# Load model with aggressive GPU usage
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID,
-    torch_dtype=torch.float16,
-    device_map="auto",          # spreads layers safely on GPU
+    dtype=torch.float16,
+    device_map="auto",
     low_cpu_mem_usage=True
 )
 
@@ -37,20 +36,20 @@ model.eval()
 
 print("✅ Model loaded successfully")
 
-def analyze_resume(resume_text, max_tokens=512):
+def analyze_resume(resume_text):
     prompt = f"""
-    You are an AI assistant specialized in resume analysis.
-    
-    Resume:
-    {resume_text}
-    
-    Extract:
-    - Key skills
-    - Years of experience
-    - Job roles
-    - Education
-    """
+You are an expert resume parser.
+Extract structured information from the resume below.
 
+Resume:
+{resume_text}
+
+Return the result in JSON with these exact keys:
+- skills
+- years_of_experience
+- job_roles
+- education
+"""
 
     inputs = tokenizer(
         prompt,
@@ -62,20 +61,11 @@ def analyze_resume(resume_text, max_tokens=512):
     with torch.no_grad():
         output = model.generate(
             **inputs,
-            max_new_tokens=max_tokens,
-            do_sample=True,
-            temperature=0.3,
-            top_p=0.9
+            max_new_tokens=256,
+            do_sample=False,
+            temperature=0.0,
+            repetition_penalty=1.2,
+            no_repeat_ngram_size=4
         )
 
     return tokenizer.decode(output[0], skip_special_tokens=True)
-
-resume_text = """
-Senior Software Engineer with 8+ years of experience.
-Expert in Python, PyTorch, NLP, and LLM deployment.
-Worked at Google and Amazon.
-MSc in Computer Science from Stanford University.
-"""
-
-result = analyze_resume(resume_text)
-print(result)
