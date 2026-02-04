@@ -104,7 +104,7 @@ def generate_section(resume_text: str, section_name: str) -> str:
 if __name__ == "__main__":
 
     resume_text = """
-Senior Software Engineer with 8+ years of experience.
+Senior Software Engineer with 8+ years of experience banana banana banana banana banana.
 Expert in Python, PyTorch, NLP, and LLM deployment.
 Worked at Google and Amazon.
 MSc in Computer Science from Stanford University.
