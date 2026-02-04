@@ -66,7 +66,8 @@ def run_raw_generation(user_input: str):
 # ===============================
 if __name__ == "__main__":
     user_input = """
-40 years, Senior Engineer, java, python, javaScrip, Harvard
+    put all next information in json format(
+40 years, Senior Engineer, java, python, javaScrip, Harvard)
 """
 
     print("\n🧠 RAW MODEL OUTPUT:")
