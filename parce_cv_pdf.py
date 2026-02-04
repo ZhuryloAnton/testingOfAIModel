@@ -6,6 +6,7 @@ import psutil
 # CONFIG
 # ===============================
 MODEL_ID = "rmtlabs/IMCatalina-v1.0"
+MAX_NEW_TOKENS = 120   # 🔥 keep small
 
 # ===============================
 # SYSTEM INFO
@@ -31,7 +32,7 @@ tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, use_fast=True)
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID,
     device_map="auto",
-    torch_dtype=torch.float16,
+    dtype=torch.float16,
     low_cpu_mem_usage=True
 )
 
@@ -39,14 +40,21 @@ model.eval()
 print("✅ Model loaded successfully")
 
 # ===============================
-# CATALINA-STYLE PROMPT
+# CATALINA SECTION GENERATOR
 # ===============================
-def run_catalina(resume_text: str):
-    prompt = f"""
-PROFESSIONAL SUMMARY
-{resume_text}
+def generate_section(resume_text: str, section_name: str):
+    """
+    section_name examples:
+    - PROFESSIONAL SUMMARY
+    - KEY SKILLS
+    - EXPERIENCE
+    """
 
-KEY SKILLS
+    prompt = f"""
+{section_name}
+{resume_text.strip()}
+
+{section_name}
 """
 
     inputs = tokenizer(
@@ -59,27 +67,38 @@ KEY SKILLS
     with torch.no_grad():
         output = model.generate(
             **inputs,
-            max_new_tokens=300,
-            do_sample=False,          # deterministic
+            max_new_tokens=MAX_NEW_TOKENS,
+            do_sample=False,
             repetition_penalty=1.15,
             eos_token_id=tokenizer.eos_token_id,
             pad_token_id=tokenizer.eos_token_id
         )
 
     text = tokenizer.decode(output[0], skip_special_tokens=True)
-    print("\n🧠 CATALINA RAW OUTPUT:")
-    print("--------------------------------------------------")
-    print(text)
-    print("--------------------------------------------------")
+
+    # Return only what comes AFTER the section header
+    split_key = section_name.upper()
+    if split_key in text:
+        text = text.split(split_key, 1)[-1]
+
+    return text.strip()
 
 # ===============================
-# TEST
+# DEMO
 # ===============================
 if __name__ == "__main__":
-    resume = """
+
+    resume_text = """
 Senior Software Engineer with 8+ years of experience.
 Expert in Python, PyTorch, NLP, and LLM deployment.
 Worked at Google and Amazon.
 MSc in Computer Science from Stanford University.
 """
-    run_catalina(resume)
+
+    print("\n🧠 GENERATED PROFESSIONAL SUMMARY")
+    print("--------------------------------")
+    print(generate_section(resume_text, "PROFESSIONAL SUMMARY"))
+
+    print("\n🧠 GENERATED KEY SKILLS")
+    print("--------------------------------")
+    print(generate_section(resume_text, "KEY SKILLS"))
