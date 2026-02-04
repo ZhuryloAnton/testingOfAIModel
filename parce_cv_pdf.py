@@ -5,7 +5,7 @@ import psutil
 # ===============================
 # CONFIG
 # ===============================
-MODEL_ID = "Qwen/Qwen2.5-3B-Instruct"
+MODEL_ID = "https://huggingface.co/rmtlabs/IMCatalina-v1.0"
 
 # ===============================
 # SYSTEM INFO
