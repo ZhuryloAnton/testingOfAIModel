@@ -1,99 +1,75 @@
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
-import psutil
 
-# ===============================
+# ----------------------------
 # CONFIG
-# ===============================
-MODEL_ID = "Qwen/Qwen2.5-3B-Instruct"
+# ----------------------------
+MODEL_ID = "rmtlabs/IMCatalina-v1.0"
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+DTYPE = torch.float16 if torch.cuda.is_available() else torch.float32
 
-# ===============================
-# SYSTEM INFO
-# ===============================
-def print_system_info():
-    print("🖥 System Info")
-    print(f"CPU RAM: {psutil.virtual_memory().total / 1e9:.1f} GB")
-    print(f"CUDA Available: {torch.cuda.is_available()}")
-    if torch.cuda.is_available():
-        print(f"GPU: {torch.cuda.get_device_name(0)}")
-        print(f"VRAM: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f} GB")
-
-print_system_info()
-
-torch.backends.cuda.matmul.allow_tf32 = True
-torch.backends.cudnn.allow_tf32 = True
-
-# ===============================
+# ----------------------------
 # LOAD MODEL
-# ===============================
-tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+# ----------------------------
+print("Loading Catalina model...")
 
+tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID,
     device_map="auto",
-    torch_dtype=torch.float16,
-    low_cpu_mem_usage=True
+    torch_dtype=DTYPE,
 )
 
 model.eval()
-print("✅ Model loaded successfully")
+print("✅ Catalina loaded\n")
 
-# ===============================
-# RAW GENERATION TEST
-# ===============================
-def run_model(resume_text: str):
-    messages = [
-        {
-            "role": "system",
-            "content": "You are an expert resume parser."
-        },
-        {
-            "role": "user",
-            "content": f"""
-Extract the following fields from the resume and return STRICT JSON:
-
-- skills (array)
-- years_of_experience (string)
-- job_roles (array)
-- education (array)
-
-Resume:
-{resume_text}
-
-Return JSON only.
+# ----------------------------
+# MESSY OCR-LIKE INPUT
+# ----------------------------
+raw_resume_text = """
+Experince experince experince
+Senior softwere enginer
+Work at Goog 2018 - 2022 develop NLP systm pytorch torch
+MSc computer scince Stand ford universty
 """
-        }
-    ]
 
-    prompt = tokenizer.apply_chat_template(
-        messages,
-        tokenize=False,
-        add_generation_prompt=True
+# ----------------------------
+# PROMPT (VERY IMPORTANT)
+# ----------------------------
+prompt = f"""
+Rewrite the following resume text so it is clean, readable, and professional.
+Do NOT add new information.
+Do NOT invent skills.
+Only fix grammar, repetition, and formatting.
+
+Text:
+{raw_resume_text}
+
+Clean version:
+"""
+
+# ----------------------------
+# GENERATE CLEAN TEXT
+# ----------------------------
+inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+
+with torch.no_grad():
+    output = model.generate(
+        **inputs,
+        max_new_tokens=200,
+        do_sample=False,          # deterministic
+        temperature=0.0,          # conservative
+        repetition_penalty=1.1,
+        eos_token_id=tokenizer.eos_token_id,
     )
 
-    inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+decoded = tokenizer.decode(output[0], skip_special_tokens=True)
 
-    with torch.no_grad():
-        output = model.generate(
-            **inputs,
-            max_new_tokens=256,
-            do_sample=False,
-            temperature=0.0,
-            repetition_penalty=1.1
-        )
+# ----------------------------
+# POST-PROCESS
+# ----------------------------
+clean_text = decoded.split("Clean version:")[-1].strip()
 
-    text = tokenizer.decode(output[0], skip_special_tokens=True)
-    print("\n🧠 RAW MODEL OUTPUT:\n")
-    print(text)
-
-# ===============================
-# TEST
-# ===============================
-if __name__ == "__main__":
-    resume = """
-Senior Software Engineer with 8+ years of experience.
-Expert in Python, PyTorch, NLP, and LLM deployment.
-Worked at Google and Amazon.
-MSc in Computer Science from Stanford University.
-"""
-    run_model(resume)
+print("🧠 CLEANED RESUME TEXT")
+print("-" * 40)
+print(clean_text)
