@@ -5,7 +5,7 @@ import psutil
 # ===============================
 # CONFIG
 # ===============================
-MODEL_ID = "https://huggingface.co/rmtlabs/IMCatalina-v1.0"
+MODEL_ID = "rmtlabs/IMCatalina-v1.0"
 
 # ===============================
 # SYSTEM INFO
@@ -26,7 +26,7 @@ torch.backends.cudnn.allow_tf32 = True
 # ===============================
 # LOAD MODEL
 # ===============================
-tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+tokenizer = AutoTokenizer.from_pretrained(MODEL_ID, use_fast=True)
 
 model = AutoModelForCausalLM.from_pretrained(
     MODEL_ID,
@@ -39,61 +39,47 @@ model.eval()
 print("✅ Model loaded successfully")
 
 # ===============================
-# RAW GENERATION TEST
+# CATALINA-STYLE PROMPT
 # ===============================
-def run_model(resume_text: str):
-    messages = [
-        {
-            "role": "system",
-            "content": "You are an expert resume parser."
-        },
-        {
-            "role": "user",
-            "content": f"""
-Extract the following fields from the resume and return STRICT JSON:
-
-- skills (array)
-- years_of_experience (string)
-- job_roles (array)
-- education (array)
-
-Resume:
+def run_catalina(resume_text: str):
+    prompt = f"""
+PROFESSIONAL SUMMARY
 {resume_text}
 
-Return JSON only.
+KEY SKILLS
 """
-        }
-    ]
 
-    prompt = tokenizer.apply_chat_template(
-        messages,
-        tokenize=False,
-        add_generation_prompt=True
-    )
-
-    inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+    inputs = tokenizer(
+        prompt,
+        return_tensors="pt",
+        truncation=True,
+        max_length=4096
+    ).to(model.device)
 
     with torch.no_grad():
         output = model.generate(
             **inputs,
-            max_new_tokens=256,
-            do_sample=False,
-            temperature=0.0,
-            repetition_penalty=1.1
+            max_new_tokens=300,
+            do_sample=False,          # deterministic
+            repetition_penalty=1.15,
+            eos_token_id=tokenizer.eos_token_id,
+            pad_token_id=tokenizer.eos_token_id
         )
 
     text = tokenizer.decode(output[0], skip_special_tokens=True)
-    print("\n🧠 RAW MODEL OUTPUT:\n")
+    print("\n🧠 CATALINA RAW OUTPUT:")
+    print("--------------------------------------------------")
     print(text)
+    print("--------------------------------------------------")
 
 # ===============================
 # TEST
 # ===============================
 if __name__ == "__main__":
     resume = """
-Senior Software Engineer with 20+ years of experience.
-Expert in Python, PyTorch, NLP, and LLM deployment, also Java and Kafka.
-Worked at Google, Amazon and Apple.
-MSc in Data Science from Stanford University.
+Senior Software Engineer with 8+ years of experience.
+Expert in Python, PyTorch, NLP, and LLM deployment.
+Worked at Google and Amazon.
+MSc in Computer Science from Stanford University.
 """
-    run_model(resume)
+    run_catalina(resume)
