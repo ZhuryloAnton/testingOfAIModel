@@ -56,7 +56,9 @@ def parse_resume(resume_text: str) -> str:
             "role": "user",
             "content": f"""
 Convert the following CV into JSON.
-Use EXACTLY this schema and nothing else:
+Fill this schema using the CV content.
+If a field is clearly present, extract it.
+Do not invent information.
 
 {{
   "skills": [],
