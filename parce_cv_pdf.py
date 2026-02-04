@@ -1,12 +1,25 @@
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 import psutil
+import re
 
 # ===============================
 # CONFIG
 # ===============================
 MODEL_ID = "rmtlabs/IMCatalina-v1.0"
-MAX_NEW_TOKENS = 120   # 🔥 keep small
+MAX_NEW_TOKENS = 80   # 🔥 very important
+
+BAD_STOP_WORDS = [
+    "Date",
+    "CAREIENCE",
+    "CURER",
+    "Father",
+    "Address",
+    "Synopsis",
+    "Visit",
+    "Electrical",
+    "JOB",
+]
 
 # ===============================
 # SYSTEM INFO
@@ -40,18 +53,10 @@ model.eval()
 print("✅ Model loaded successfully")
 
 # ===============================
-# CATALINA SECTION GENERATOR
+# CLEAN GENERATION
 # ===============================
-def generate_section(resume_text: str, section_name: str):
-    """
-    section_name examples:
-    - PROFESSIONAL SUMMARY
-    - KEY SKILLS
-    - EXPERIENCE
-    """
-
-    prompt = f"""
-{section_name}
+def generate_section(resume_text: str, section_name: str) -> str:
+    prompt = f"""{section_name}
 {resume_text.strip()}
 
 {section_name}
@@ -69,19 +74,29 @@ def generate_section(resume_text: str, section_name: str):
             **inputs,
             max_new_tokens=MAX_NEW_TOKENS,
             do_sample=False,
-            repetition_penalty=1.15,
+            repetition_penalty=1.1,
             eos_token_id=tokenizer.eos_token_id,
             pad_token_id=tokenizer.eos_token_id
         )
 
     text = tokenizer.decode(output[0], skip_special_tokens=True)
 
-    # Return only what comes AFTER the section header
-    split_key = section_name.upper()
-    if split_key in text:
-        text = text.split(split_key, 1)[-1]
+    # Remove prompt echo
+    if section_name in text:
+        text = text.split(section_name, 1)[-1]
 
-    return text.strip()
+    # Hard stop on garbage signals
+    lines = []
+    for line in text.splitlines():
+        if any(bad.lower() in line.lower() for bad in BAD_STOP_WORDS):
+            break
+        lines.append(line)
+
+    cleaned = "\n".join(lines).strip()
+
+    # Final safety cleanup
+    cleaned = re.sub(r"\s{2,}", " ", cleaned)
+    return cleaned
 
 # ===============================
 # DEMO
@@ -95,10 +110,10 @@ Worked at Google and Amazon.
 MSc in Computer Science from Stanford University.
 """
 
-    print("\n🧠 GENERATED PROFESSIONAL SUMMARY")
+    print("\n🧠 CLEAN PROFESSIONAL SUMMARY")
     print("--------------------------------")
     print(generate_section(resume_text, "PROFESSIONAL SUMMARY"))
 
-    print("\n🧠 GENERATED KEY SKILLS")
+    print("\n🧠 CLEAN KEY SKILLS")
     print("--------------------------------")
     print(generate_section(resume_text, "KEY SKILLS"))
