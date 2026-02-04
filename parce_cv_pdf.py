@@ -133,12 +133,7 @@ def parse_resume(resume_text: str) -> dict:
 # TEST
 # ===============================
 if __name__ == "__main__":
-    resume_text = """
-    Senior Software Engineer with 8+ years of experience.
-    Expert in Python, PyTorch, NLP, and LLM deployment.
-    Worked at Google and Amazon.
-    MSc in Computer Science from Stanford University.
-    """
+    resume_text = "Senior Engineer"
 
     result = parse_resume(resume_text)
     print("\n📄 Parsed Resume JSON:")
