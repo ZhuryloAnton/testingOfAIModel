@@ -1,9 +1,10 @@
 import torch
-from transformers import AutoTokenizer, AutoModelForCausalLM
-from peft import PeftModel
 import psutil
 import json
+import re
 
+from transformers import AutoTokenizer, AutoModelForCausalLM
+from peft import PeftModel
 
 # ===============================
 # CONFIG
@@ -11,7 +12,6 @@ import json
 BASE_MODEL_ID = "microsoft/phi-4-mini-instruct"
 ADAPTER_ID = "rmtlabs/phi-4-mini-adapter-v1"
 MAX_NEW_TOKENS = 256
-
 
 # ===============================
 # SYSTEM INFO
@@ -33,7 +33,7 @@ torch.backends.cudnn.allow_tf32 = True
 # ===============================
 # LOAD MODEL
 # ===============================
-print("Loading Phi-4 Mini base model...")
+print("Loading Phi-4-Mini base model...")
 
 tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL_ID)
 
@@ -55,6 +55,16 @@ model = PeftModel.from_pretrained(
 model.eval()
 print("✅ Phi-4-Mini + Adapter loaded")
 
+# ===============================
+# JSON EXTRACTION FIX
+# ===============================
+def extract_last_json(text: str) -> str:
+    """
+    Extracts the last JSON object from model output.
+    Handles schema echo + final answer cases.
+    """
+    matches = re.findall(r"\{[\s\S]*?\}", text)
+    return matches[-1] if matches else text
 
 # ===============================
 # RESUME → JSON
@@ -63,7 +73,11 @@ def parse_resume(resume_text: str) -> str:
     messages = [
         {
             "role": "system",
-            "content": "You are an AI that converts resumes into structured JSON. Output JSON only."
+            "content": (
+                "You extract structured data from resumes. "
+                "Respond with ONE valid JSON object only. "
+                "No markdown. No explanations."
+            )
         },
         {
             "role": "user",
@@ -99,19 +113,15 @@ CV:
             **inputs,
             max_new_tokens=MAX_NEW_TOKENS,
             do_sample=False,
-            temperature=0.0,
             repetition_penalty=1.1,
             eos_token_id=tokenizer.eos_token_id,
             pad_token_id=tokenizer.eos_token_id
         )
 
     decoded = tokenizer.decode(output[0], skip_special_tokens=True)
-
-    if "{" in decoded and "}" in decoded:
-        decoded = decoded[decoded.find("{"): decoded.rfind("}") + 1]
+    decoded = extract_last_json(decoded)
 
     return decoded
-
 
 # ===============================
 # TEST
@@ -134,6 +144,6 @@ MSc in Computer Science from Stanford University.
         parsed = json.loads(result)
         print("\n✅ JSON parsed successfully:")
         print(json.dumps(parsed, indent=2))
-    except Exception:
-        print("\n⚠️ Output is not valid JSON yet")
-
+    except Exception as e:
+        print("\n⚠️ Output is not valid JSON")
+        print(e)
