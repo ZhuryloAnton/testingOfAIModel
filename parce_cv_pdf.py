@@ -1,13 +1,17 @@
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
+from peft import PeftModel
 import psutil
 import json
+
 
 # ===============================
 # CONFIG
 # ===============================
-MODEL_ID = "rmtlabs/IMCatalina-v1.0"
+BASE_MODEL_ID = "microsoft/phi-4-mini-instruct"
+ADAPTER_ID = "rmtlabs/phi-4-mini-adapter-v1"
 MAX_NEW_TOKENS = 256
+
 
 # ===============================
 # SYSTEM INFO
@@ -29,19 +33,28 @@ torch.backends.cudnn.allow_tf32 = True
 # ===============================
 # LOAD MODEL
 # ===============================
-print("Loading Catalina model...")
+print("Loading Phi-4 Mini base model...")
 
-tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL_ID)
 
-model = AutoModelForCausalLM.from_pretrained(
-    MODEL_ID,
-    dtype=torch.float16,
+base_model = AutoModelForCausalLM.from_pretrained(
+    BASE_MODEL_ID,
+    torch_dtype=torch.float16,
     device_map="auto",
     low_cpu_mem_usage=True
 )
 
+print("Loading adapter...")
+
+model = PeftModel.from_pretrained(
+    base_model,
+    ADAPTER_ID,
+    torch_dtype=torch.float16
+)
+
 model.eval()
-print("✅ Catalina loaded")
+print("✅ Phi-4-Mini + Adapter loaded")
+
 
 # ===============================
 # RESUME → JSON
@@ -73,17 +86,13 @@ CV:
         }
     ]
 
-    # 🔑 APPLY CHAT TEMPLATE (THIS IS THE FIX)
     prompt = tokenizer.apply_chat_template(
         messages,
         tokenize=False,
         add_generation_prompt=True
     )
 
-    inputs = tokenizer(
-        prompt,
-        return_tensors="pt"
-    ).to(model.device)
+    inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
 
     with torch.no_grad():
         output = model.generate(
@@ -98,11 +107,11 @@ CV:
 
     decoded = tokenizer.decode(output[0], skip_special_tokens=True)
 
-    # Try to cut clean JSON
     if "{" in decoded and "}" in decoded:
         decoded = decoded[decoded.find("{"): decoded.rfind("}") + 1]
 
     return decoded
+
 
 # ===============================
 # TEST
@@ -117,14 +126,14 @@ MSc in Computer Science from Stanford University.
 
     result = parse_resume(resume_text)
 
-    print("\n📄 CATALINA OUTPUT")
+    print("\n📄 PHI-4-MINI ADAPTER OUTPUT")
     print("-" * 40)
     print(result)
 
-    # Optional: try to parse JSON
     try:
         parsed = json.loads(result)
         print("\n✅ JSON parsed successfully:")
         print(json.dumps(parsed, indent=2))
-    except Exception as e:
+    except Exception:
         print("\n⚠️ Output is not valid JSON yet")
+
