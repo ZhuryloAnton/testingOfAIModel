@@ -104,23 +104,26 @@ def parse_resume(resume_text: str) -> dict:
     decoded = tokenizer.decode(output[0], skip_special_tokens=True)
     return extract_last_json(decoded)
 
-def pretty_print_cv(raw_text: str):
+def pretty_print_generated(cv: dict):
     print("\n" + "=" * 80)
-    print("CURRICULUM VITAE")
+    print("📌 GENERATED CV SUMMARY")
     print("=" * 80)
 
-    for line in raw_text.splitlines():
-        line = line.strip()
+    for key, value in cv.items():
+        print(f"\n{key}")
+        print("-" * len(key))
 
-        if not line:
-            continue
-
-        # Headings
-        if line.isupper() or "WORK EXPERIENCE" in line or "EDUCATION" in line:
-            print("\n" + line.upper())
-            print("-" * len(line))
+        if isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict):
+                    for k, v in item.items():
+                        print(f"  {k}: {v}")
+                    print()
+                else:
+                    print(f"- {item}")
         else:
-            print(line)
+            print(value)
+
 
 # ===============================
 # MAIN
