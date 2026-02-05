@@ -11,7 +11,7 @@ from peft import PeftModel
 # ===============================
 BASE_MODEL_ID = "microsoft/phi-4-mini-instruct"
 ADAPTER_ID = "rmtlabs/phi-4-mini-adapter-v1"
-MAX_NEW_TOKENS = 256
+MAX_NEW_TOKENS = 512
 
 # ===============================
 # SYSTEM INFO
@@ -128,7 +128,7 @@ CV:
 # ===============================
 if __name__ == "__main__":
     resume_text = """
-Senior Software Engineer with 8+ years of experience.
+Junior Software Engineer with 2+ years of experience.
 Expert in Python, PyTorch, NLP, and LLM deployment.
 Worked at Google and Amazon.
 MSc in Computer Science from Stanford University.
