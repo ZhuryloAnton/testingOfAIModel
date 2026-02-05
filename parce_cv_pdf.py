@@ -128,7 +128,7 @@ CV:
 # ===============================
 if __name__ == "__main__":
     resume_text = """
-Junior Software Engineer with 2+ years of experience.
+Junior Frontend Engineer with 2+ years of experience.
 Expert in Python, PyTorch, NLP, and LLM deployment.
 Worked at Google and Amazon.
 MSc in Computer Science from Stanford University.
