@@ -104,6 +104,24 @@ def parse_resume(resume_text: str) -> dict:
     decoded = tokenizer.decode(output[0], skip_special_tokens=True)
     return extract_last_json(decoded)
 
+def pretty_print_cv(raw_text: str):
+    print("\n" + "=" * 80)
+    print("CURRICULUM VITAE")
+    print("=" * 80)
+
+    for line in raw_text.splitlines():
+        line = line.strip()
+
+        if not line:
+            continue
+
+        # Headings
+        if line.isupper() or "WORK EXPERIENCE" in line or "EDUCATION" in line:
+            print("\n" + line.upper())
+            print("-" * len(line))
+        else:
+            print(line)
+
 # ===============================
 # MAIN
 # ===============================
@@ -120,7 +138,7 @@ if __name__ == "__main__":
                 cv_text = record.get("cv_text", json.dumps(record))
                 result = parse_resume(cv_text)
 
-                print(json.dumps(result, indent=2))
+                pretty_print_generated(result)
 
             except Exception as e:
                 print("⚠️ Failed to parse CV")
