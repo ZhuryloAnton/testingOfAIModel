@@ -14,7 +14,7 @@ from docx import Document
 BASE_MODEL_ID = "microsoft/phi-4-mini-instruct"
 ADAPTER_ID = "rmtlabs/phi-4-mini-adapter-v1"
 
-INPUT_DATASET = "dataset_interim_v6.jsonl"   # JSONL or JSON
+INPUT_DATASET = "dataset_interim_v6.jsonl"
 OUTPUT_DIR = "output_word_cvs"
 
 MAX_NEW_TOKENS = 512
@@ -38,8 +38,6 @@ torch.backends.cudnn.allow_tf32 = True
 # ===============================
 # LOAD MODEL
 # ===============================
-print("Loading Phi-4-Mini base model...")
-
 tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL_ID)
 
 base_model = AutoModelForCausalLM.from_pretrained(
@@ -48,8 +46,6 @@ base_model = AutoModelForCausalLM.from_pretrained(
     device_map="auto",
     low_cpu_mem_usage=True
 )
-
-print("Loading adapter...")
 
 model = PeftModel.from_pretrained(
     base_model,
@@ -69,17 +65,12 @@ def extract_last_json(text: str) -> str:
         return text
 
     last = matches[-1]
-
-    # Auto-close JSON if truncated
-    open_braces = last.count("{")
-    close_braces = last.count("}")
-    if open_braces > close_braces:
-        last += "}" * (open_braces - close_braces)
-
+    if last.count("{") > last.count("}"):
+        last += "}" * (last.count("{") - last.count("}"))
     return last
 
 # ===============================
-# CV → JSON (MODEL)
+# CV → JSON
 # ===============================
 def parse_resume(resume_text: str) -> dict:
     messages = [
@@ -87,27 +78,12 @@ def parse_resume(resume_text: str) -> dict:
             "role": "system",
             "content": (
                 "You extract structured data from resumes. "
-                "Return ONE valid JSON object only. "
-                "No markdown. No explanations."
+                "Return ONE valid JSON object only."
             )
         },
         {
             "role": "user",
-            "content": f"""
-Convert the following CV into JSON.
-Fill this schema using the CV content.
-Do not invent information.
-
-{{
-  "skills": [],
-  "years_of_experience": "",
-  "job_roles": [],
-  "education": []
-}}
-
-CV:
-{resume_text}
-"""
+            "content": resume_text
         }
     ]
 
@@ -124,42 +100,59 @@ CV:
             **inputs,
             max_new_tokens=MAX_NEW_TOKENS,
             do_sample=False,
-            repetition_penalty=1.1,
             eos_token_id=tokenizer.eos_token_id,
             pad_token_id=tokenizer.eos_token_id
         )
 
     decoded = tokenizer.decode(output[0], skip_special_tokens=True)
-    cleaned = extract_last_json(decoded)
-
-    return json.loads(cleaned)
+    return json.loads(extract_last_json(decoded))
 
 # ===============================
-# WRITE WORD DOCUMENT
+# WRITE WORD DOCUMENT (FIXED)
 # ===============================
 def write_cv_to_word(cv_json: dict, output_path: str):
     doc = Document()
-
     doc.add_heading("Curriculum Vitae", level=1)
 
-    if cv_json.get("job_roles"):
+    # Job title / roles
+    roles = cv_json.get("job_roles") or cv_json.get("JOB_TITLE")
+    if roles:
         doc.add_heading("Professional Summary", level=2)
-        for role in cv_json["job_roles"]:
-            doc.add_paragraph(role, style="List Bullet")
+        if isinstance(roles, list):
+            for r in roles:
+                doc.add_paragraph(str(r), style="List Bullet")
+        else:
+            doc.add_paragraph(str(roles))
 
-    if cv_json.get("years_of_experience"):
+    # Experience years
+    years = (
+        cv_json.get("years_of_experience")
+        or cv_json.get("TOTAL_YEARS_OF_WORK_EXPERIENCE")
+    )
+    if years:
         doc.add_heading("Experience", level=2)
-        doc.add_paragraph(f"Years of Experience: {cv_json['years_of_experience']}")
+        doc.add_paragraph(f"Years of Experience: {years}")
 
-    if cv_json.get("skills"):
+    # Skills
+    skills = cv_json.get("skills") or cv_json.get("TECHNICAL_SKILLS")
+    if skills:
         doc.add_heading("Skills", level=2)
-        for skill in cv_json["skills"]:
-            doc.add_paragraph(skill, style="List Bullet")
+        for s in skills:
+            if isinstance(s, dict):
+                doc.add_paragraph(s.get("NAME", ""), style="List Bullet")
+            else:
+                doc.add_paragraph(str(s), style="List Bullet")
 
-    if cv_json.get("education"):
+    # Education
+    education = cv_json.get("education") or cv_json.get("EDUCATION")
+    if education:
         doc.add_heading("Education", level=2)
-        for edu in cv_json["education"]:
-            line = f"{edu.get('degree', '')} in {edu.get('field', '')} – {edu.get('institution', '')}"
+        for e in education:
+            line = " ".join(filter(None, [
+                e.get("DEGREE") or e.get("degree"),
+                e.get("field"),
+                e.get("institution") or e.get("SCHOOL")
+            ]))
             doc.add_paragraph(line)
 
     doc.save(output_path)
@@ -174,16 +167,13 @@ def process_dataset(dataset_path: str, output_dir: str):
         for idx, line in enumerate(f):
             record = json.loads(line)
 
-            # Case 1: raw CV text
             if "cv_text" in record:
                 cv_json = parse_resume(record["cv_text"])
             else:
-                # Case 2: already structured JSON
                 cv_json = record
 
-            output_path = os.path.join(output_dir, f"cv_{idx + 1}.docx")
+            output_path = os.path.join(output_dir, f"cv_{idx+1}.docx")
             write_cv_to_word(cv_json, output_path)
-
             print(f"✅ Generated {output_path}")
 
 # ===============================
