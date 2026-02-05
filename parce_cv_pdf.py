@@ -9,8 +9,8 @@ from peft import PeftModel
 # ===============================
 # CONFIG
 # ===============================
-BASE_MODEL_ID = "microsoft/phi-4-mini-instruct"
-ADAPTER_ID = "rmtlabs/phi-4-mini-adapter-v1"
+BASE_MODEL_ID = "microsoft/phi-4"
+ADAPTER_ID = "rmtlabs/phi-4-adapter-v1"
 
 DATASET_PATH = "dataset_interim_v6.jsonl"
 MAX_NEW_TOKENS = 512
@@ -35,19 +35,18 @@ torch.backends.cudnn.allow_tf32 = True
 # LOAD MODEL
 # ===============================
 tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL_ID)
-
 base_model = AutoModelForCausalLM.from_pretrained(
     BASE_MODEL_ID,
     dtype=torch.float16,
     device_map="auto",
     low_cpu_mem_usage=True
 )
-
 model = PeftModel.from_pretrained(
     base_model,
     ADAPTER_ID,
     dtype=torch.float16
 )
+
 
 model.eval()
 print("✅ Phi-4-Mini + Adapter loaded")
