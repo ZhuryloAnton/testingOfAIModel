@@ -128,10 +128,10 @@ CV:
 # ===============================
 if __name__ == "__main__":
     resume_text = """
-Junior Frontend Engineer with 2+ years of experience.
-Expert in Python, PyTorch, NLP, and LLM deployment.
+Junior Frontend Developer with 2+ years of experience.
+Expert in Java, Python, PyTorch, NLP, and LLM deployment.
 Worked at Google and Amazon.
-MSc in Computer Science from Stanford University.
+MSc in Computer Science from Harvard University.
 """
 
     result = parse_resume(resume_text)
