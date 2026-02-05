@@ -1,4 +1,3 @@
-import os
 import json
 import re
 import torch
@@ -6,7 +5,6 @@ import psutil
 
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from peft import PeftModel
-from docx import Document
 
 # ===============================
 # CONFIG
@@ -14,9 +12,7 @@ from docx import Document
 BASE_MODEL_ID = "microsoft/phi-4-mini-instruct"
 ADAPTER_ID = "rmtlabs/phi-4-mini-adapter-v1"
 
-INPUT_DATASET = "dataset_interim_v6.jsonl"
-OUTPUT_DIR = "output_word_cvs"
-
+DATASET_PATH = "dataset_interim_v6.jsonl"
 MAX_NEW_TOKENS = 512
 
 # ===============================
@@ -57,27 +53,29 @@ model.eval()
 print("✅ Phi-4-Mini + Adapter loaded")
 
 # ===============================
-# JSON EXTRACTION
+# SAFE JSON EXTRACTION
 # ===============================
-def extract_last_json(text: str) -> str:
+def extract_last_json(text: str) -> dict:
     matches = re.findall(r"\{[\s\S]*?\}", text)
     if not matches:
-        return text
+        raise ValueError("No JSON found in model output")
 
-    last = matches[-1]
-    if last.count("{") > last.count("}"):
-        last += "}" * (last.count("{") - last.count("}"))
-    return last
+    candidate = matches[-1]
+
+    if candidate.count("{") > candidate.count("}"):
+        candidate += "}" * (candidate.count("{") - candidate.count("}"))
+
+    return json.loads(candidate)
 
 # ===============================
-# CV → JSON
+# CV → STRUCTURED DATA
 # ===============================
 def parse_resume(resume_text: str) -> dict:
     messages = [
         {
             "role": "system",
             "content": (
-                "You extract structured data from resumes. "
+                "Extract structured information from the CV. "
                 "Return ONE valid JSON object only."
             )
         },
@@ -105,79 +103,26 @@ def parse_resume(resume_text: str) -> dict:
         )
 
     decoded = tokenizer.decode(output[0], skip_special_tokens=True)
-    return json.loads(extract_last_json(decoded))
-
-# ===============================
-# WRITE WORD DOCUMENT (FIXED)
-# ===============================
-def write_cv_to_word(cv_json: dict, output_path: str):
-    doc = Document()
-    doc.add_heading("Curriculum Vitae", level=1)
-
-    # Job title / roles
-    roles = cv_json.get("job_roles") or cv_json.get("JOB_TITLE")
-    if roles:
-        doc.add_heading("Professional Summary", level=2)
-        if isinstance(roles, list):
-            for r in roles:
-                doc.add_paragraph(str(r), style="List Bullet")
-        else:
-            doc.add_paragraph(str(roles))
-
-    # Experience years
-    years = (
-        cv_json.get("years_of_experience")
-        or cv_json.get("TOTAL_YEARS_OF_WORK_EXPERIENCE")
-    )
-    if years:
-        doc.add_heading("Experience", level=2)
-        doc.add_paragraph(f"Years of Experience: {years}")
-
-    # Skills
-    skills = cv_json.get("skills") or cv_json.get("TECHNICAL_SKILLS")
-    if skills:
-        doc.add_heading("Skills", level=2)
-        for s in skills:
-            if isinstance(s, dict):
-                doc.add_paragraph(s.get("NAME", ""), style="List Bullet")
-            else:
-                doc.add_paragraph(str(s), style="List Bullet")
-
-    # Education
-    education = cv_json.get("education") or cv_json.get("EDUCATION")
-    if education:
-        doc.add_heading("Education", level=2)
-        for e in education:
-            line = " ".join(filter(None, [
-                e.get("DEGREE") or e.get("degree"),
-                e.get("field"),
-                e.get("institution") or e.get("SCHOOL")
-            ]))
-            doc.add_paragraph(line)
-
-    doc.save(output_path)
-
-# ===============================
-# DATASET PROCESSING
-# ===============================
-def process_dataset(dataset_path: str, output_dir: str):
-    os.makedirs(output_dir, exist_ok=True)
-
-    with open(dataset_path, "r") as f:
-        for idx, line in enumerate(f):
-            record = json.loads(line)
-
-            if "cv_text" in record:
-                cv_json = parse_resume(record["cv_text"])
-            else:
-                cv_json = record
-
-            output_path = os.path.join(output_dir, f"cv_{idx+1}.docx")
-            write_cv_to_word(cv_json, output_path)
-            print(f"✅ Generated {output_path}")
+    return extract_last_json(decoded)
 
 # ===============================
 # MAIN
 # ===============================
 if __name__ == "__main__":
-    process_dataset(INPUT_DATASET, OUTPUT_DIR)
+    with open(DATASET_PATH, "r") as f:
+        for idx, line in enumerate(f, start=1):
+            record = json.loads(line)
+
+            print("\n" + "=" * 60)
+            print(f"📄 CV #{idx}")
+            print("=" * 60)
+
+            try:
+                cv_text = record.get("cv_text", json.dumps(record))
+                result = parse_resume(cv_text)
+
+                print(json.dumps(result, indent=2))
+
+            except Exception as e:
+                print("⚠️ Failed to parse CV")
+                print(str(e))
