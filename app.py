@@ -2,7 +2,7 @@ import json
 import re
 import torch
 import psutil
-
+from fastapi import FastAPI, Request
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from peft import PeftModel
 
@@ -11,8 +11,6 @@ from peft import PeftModel
 # ===============================
 BASE_MODEL_ID = "microsoft/phi-4"
 ADAPTER_ID = "rmtlabs/phi-4-adapter-v1"
-
-DATASET_PATH = "dataset_interim_v6.jsonl"
 MAX_NEW_TOKENS = 512
 
 # ===============================
@@ -30,29 +28,59 @@ print_system_info()
 
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
+torch.set_grad_enabled(False)
 
 # ===============================
-# LOAD MODEL
+# LOAD MODEL (ONCE AT STARTUP)
 # ===============================
+print("🚀 Loading tokenizer...")
 tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL_ID)
+
+print("🚀 Loading base model...")
+max_memory = {
+    0: "14GiB",   # T4 safe limit
+    "cpu": "30GiB"
+}
+
 base_model = AutoModelForCausalLM.from_pretrained(
     BASE_MODEL_ID,
-    dtype=torch.float16,
+    torch_dtype=torch.float16,
     device_map="auto",
-    low_cpu_mem_usage=True
+    low_cpu_mem_usage=True,
+    max_memory=max_memory
 )
+
+print("🚀 Loading adapter...")
 model = PeftModel.from_pretrained(
     base_model,
     ADAPTER_ID,
-    dtype=torch.float16
+    torch_dtype=torch.float16
 )
 
-
 model.eval()
-print("✅ Phi-4-Mini + Adapter loaded")
+print("✅ Phi-4 + adapter loaded")
 
 # ===============================
-# SAFE JSON EXTRACTION
+# WARM-UP (CRITICAL FOR VERTEX)
+# ===============================
+print("🔥 Warming up model...")
+_ = model.generate(
+    **tokenizer("Hello", return_tensors="pt").to(model.device),
+    max_new_tokens=1
+)
+print("🔥 Warm-up done")
+
+# ===============================
+# FASTAPI
+# ===============================
+app = FastAPI()
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+# ===============================
+# UTILITIES
 # ===============================
 def extract_last_json(text: str) -> dict:
     matches = re.findall(r"\{[\s\S]*?\}", text)
@@ -60,15 +88,11 @@ def extract_last_json(text: str) -> dict:
         raise ValueError("No JSON found in model output")
 
     candidate = matches[-1]
-
     if candidate.count("{") > candidate.count("}"):
         candidate += "}" * (candidate.count("{") - candidate.count("}"))
 
     return json.loads(candidate)
 
-# ===============================
-# CV → STRUCTURED DATA
-# ===============================
 def parse_resume(resume_text: str) -> dict:
     messages = [
         {
@@ -104,45 +128,26 @@ def parse_resume(resume_text: str) -> dict:
     decoded = tokenizer.decode(output[0], skip_special_tokens=True)
     return extract_last_json(decoded)
 
-def pretty_print_generated(cv: dict):
-    print("\n" + "=" * 80)
-    print("📌 GENERATED CV SUMMARY")
-    print("=" * 80)
-
-    for key, value in cv.items():
-        print(f"\n{key}")
-        print("-" * len(key))
-
-        if isinstance(value, list):
-            for item in value:
-                if isinstance(item, dict):
-                    for k, v in item.items():
-                        print(f"  {k}: {v}")
-                    print()
-                else:
-                    print(f"- {item}")
-        else:
-            print(value)
-
-
 # ===============================
-# MAIN
+# VERTEX AI PREDICT
 # ===============================
-if __name__ == "__main__":
-    with open(DATASET_PATH, "r") as f:
-        for idx, line in enumerate(f, start=1):
-            record = json.loads(line)
+@app.post("/predict")
+async def predict(request: Request):
+    body = await request.json()
+    instances = body.get("instances", [])
 
-            print("\n" + "=" * 60)
-            print(f"📄 CV #{idx}")
-            print("=" * 60)
+    predictions = []
 
-            try:
-                cv_text = record.get("cv_text", json.dumps(record))
-                result = parse_resume(cv_text)
+    for inst in instances:
+        text = inst.get("text", "")
+        if not text.strip():
+            predictions.append({})
+            continue
 
-                pretty_print_generated(result)
+        try:
+            result = parse_resume(text)
+            predictions.append(result)
+        except Exception as e:
+            predictions.append({"error": str(e)})
 
-            except Exception as e:
-                print("⚠️ Failed to parse CV")
-                print(str(e))
+    return {"predictions": predictions}
