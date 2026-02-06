@@ -1,6 +1,8 @@
-torch
-transformers
-peft
-accelerate
-fastapi
-uvicorn
+torch==2.1.2
+transformers==4.39.3
+peft==0.10.0
+accelerate==0.27.2
+fastapi==0.110.0
+uvicorn==0.27.1
+psutil
+sentencepiece

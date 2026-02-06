@@ -9,8 +9,8 @@ from peft import PeftModel
 # ===============================
 # CONFIG
 # ===============================
-BASE_MODEL_ID = "microsoft/phi-4"
-ADAPTER_ID = "rmtlabs/phi-4-adapter-v1"
+BASE_MODEL_ID = "microsoft/phi-4-mini"
+ADAPTER_ID = "rmtlabs/phi-4-mini-adapter-v1"
 MAX_NEW_TOKENS = 512
 
 # ===============================
@@ -26,49 +26,22 @@ def print_system_info():
 
 print_system_info()
 
-torch.backends.cuda.matmul.allow_tf32 = True
-torch.backends.cudnn.allow_tf32 = True
-torch.set_grad_enabled(False)
-
 # ===============================
-# LOAD MODEL (ONCE AT STARTUP)
+# LOAD MODEL (ONCE)
 # ===============================
-print("🚀 Loading tokenizer...")
 tokenizer = AutoTokenizer.from_pretrained(BASE_MODEL_ID)
-
-print("🚀 Loading base model...")
-max_memory = {
-    0: "14GiB",   # T4 safe limit
-    "cpu": "30GiB"
-}
 
 base_model = AutoModelForCausalLM.from_pretrained(
     BASE_MODEL_ID,
-    torch_dtype=torch.float16,
+    torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
     device_map="auto",
-    low_cpu_mem_usage=True,
-    max_memory=max_memory
+    low_cpu_mem_usage=True
 )
 
-print("🚀 Loading adapter...")
-model = PeftModel.from_pretrained(
-    base_model,
-    ADAPTER_ID,
-    torch_dtype=torch.float16
-)
-
+model = PeftModel.from_pretrained(base_model, ADAPTER_ID)
 model.eval()
-print("✅ Phi-4 + adapter loaded")
 
-# ===============================
-# WARM-UP (CRITICAL FOR VERTEX)
-# ===============================
-print("🔥 Warming up model...")
-_ = model.generate(
-    **tokenizer("Hello", return_tensors="pt").to(model.device),
-    max_new_tokens=1
-)
-print("🔥 Warm-up done")
+print("✅ Phi-4 Mini + adapter loaded")
 
 # ===============================
 # FASTAPI
@@ -79,9 +52,6 @@ app = FastAPI()
 def health():
     return {"status": "ok"}
 
-# ===============================
-# UTILITIES
-# ===============================
 def extract_last_json(text: str) -> dict:
     matches = re.findall(r"\{[\s\S]*?\}", text)
     if not matches:
@@ -128,26 +98,14 @@ def parse_resume(resume_text: str) -> dict:
     decoded = tokenizer.decode(output[0], skip_special_tokens=True)
     return extract_last_json(decoded)
 
-# ===============================
-# VERTEX AI PREDICT
-# ===============================
 @app.post("/predict")
 async def predict(request: Request):
     body = await request.json()
     instances = body.get("instances", [])
 
     predictions = []
-
     for inst in instances:
         text = inst.get("text", "")
-        if not text.strip():
-            predictions.append({})
-            continue
-
-        try:
-            result = parse_resume(text)
-            predictions.append(result)
-        except Exception as e:
-            predictions.append({"error": str(e)})
+        predictions.append(parse_resume(text))
 
     return {"predictions": predictions}
